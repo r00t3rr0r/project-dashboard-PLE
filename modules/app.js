@@ -33,6 +33,10 @@ function getAuthorizedPage(page){
 
 var SIDEBAR_EXPANDED_KEY='pd_sidebar_expanded';
 var ACTIVE_PAGE_STORAGE_KEY='pd_active_page';
+var activePageRefreshFrame=null;
+var activePageRefreshTimer=null;
+var activePageRefreshTarget='';
+var activePageRefreshOptions=null;
 
 function saveActivePage(page){
   try {
@@ -144,7 +148,7 @@ function navigateTo(page){
   }
 
   if(typeof refreshActivePageModule==='function'){
-    refreshActivePageModule();
+    scheduleActivePageRefresh();
   }
 }
 
@@ -477,6 +481,25 @@ function refreshActivePageModule(options){
   }catch(e){console.error('[Refresh Active]',e);}
 }
 
+function scheduleActivePageRefresh(options){
+  activePageRefreshTarget=getActivePageId();
+  activePageRefreshOptions=options||null;
+  if(activePageRefreshFrame!==null||activePageRefreshTimer!==null)return;
+  var requestFrame=window.requestAnimationFrame||function(callback){return window.setTimeout(callback,16);};
+  activePageRefreshFrame=requestFrame(function(){
+    activePageRefreshFrame=null;
+    activePageRefreshTimer=window.setTimeout(function(){
+      activePageRefreshTimer=null;
+      var target=activePageRefreshTarget;
+      var refreshOptions=activePageRefreshOptions;
+      activePageRefreshTarget='';
+      activePageRefreshOptions=null;
+      if(target!==getActivePageId())return;
+      refreshActivePageModule(refreshOptions);
+    },0);
+  });
+}
+
 // ---- Mobile Menu Toggle (for responsive) ----
 function setupMobileMenu(){
   // Check if mobile menu button exists
@@ -563,7 +586,7 @@ function init(){
     // Listen for data changes and refresh current page's module
     if(window.DataLayer.on){
       window.DataLayer.on('dataChanged',function(){
-        refreshActivePageModule({skipProjects:true});
+        scheduleActivePageRefresh({skipProjects:true});
         updateDatabaseStatusLabel();
         updateStorageStatusLabel();
       });

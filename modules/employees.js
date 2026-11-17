@@ -2355,11 +2355,6 @@
       }
     });
 
-    if (window.DataLayer && typeof window.DataLayer.on === 'function') {
-      window.DataLayer.on('dataChanged', function() {
-        renderEmployeeList('employee-list');
-      });
-    }
   }
 
   function init() {

@@ -156,9 +156,6 @@ function renderAnalytics(){
 
 function initAnalytics(){
   renderAnalytics();
-  if(window.DataLayer&&window.DataLayer.on){
-    window.DataLayer.on('dataChanged',renderAnalytics);
-  }
 }
 
 if(document.readyState==='loading'){

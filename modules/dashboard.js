@@ -2173,11 +2173,6 @@
     window.setInterval(function() {
       if (dashboardPage && dashboardPage.classList.contains('active')) renderTeamLoad();
     }, 60000);
-    if (window.DataLayer && typeof window.DataLayer.on === 'function') {
-      window.DataLayer.on('dataChanged', function(event) {
-        scheduleDashboardRender(event || null);
-      });
-    }
   });
 
   // --- Public API ---

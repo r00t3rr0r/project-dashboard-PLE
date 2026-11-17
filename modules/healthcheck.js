@@ -377,10 +377,6 @@
         }
 
         renderDefaultHealthcheck();
-
-        if (window.DataLayer && window.DataLayer.on) {
-            window.DataLayer.on('dataChanged', renderDefaultHealthcheck);
-        }
     }
 
     window.HealthCheckModule = {

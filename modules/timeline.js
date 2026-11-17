@@ -104,8 +104,6 @@ function escapeHtml(s){if(!s)return'';var d=document.createElement('div');d.appe
 document.addEventListener('DOMContentLoaded',function(){
   renderTimeline();
   renderStatusHistory();
-  window.DataLayer.on&&window.DataLayer.on('dataChanged',renderTimeline);
-  window.DataLayer.on&&window.DataLayer.on('dataChanged',renderStatusHistory);
 });
 
 window.TimelineModule={

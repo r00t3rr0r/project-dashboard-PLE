@@ -3446,10 +3446,8 @@
     if (skipNextTaskRender && event && event.entity === 'tasks' && event.action === 'update') {
       skipNextTaskRender = false;
       refreshLiveTaskMetrics();
-      return;
     }
     skipNextTaskRender = false;
-    renderAllColumns();
   }
 
   // --- Filterleiste rendern und Event-Handler ---

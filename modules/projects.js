@@ -3682,6 +3682,7 @@ function saveProjectPageDraftState(){
 function saveProjectPageState(){
   var form=byId('project-form');
   var projectList=byId('project-list');
+  var activePage=document.querySelector('.page.active');
   var details=[];
   var detailEls=document.querySelectorAll('[data-project-state-key]');
   detailEls.forEach(function(detail){
@@ -3692,7 +3693,7 @@ function saveProjectPageState(){
   });
 
   var snapshot={
-    page: window.location.hash || readActivePage() || 'projects',
+    page: window.location.hash || (activePage&&activePage.id) || 'projects',
     listScrollTop: projectList ? projectList.scrollTop : 0,
     pageScrollTop: window.scrollY || document.documentElement.scrollTop || 0,
     details:details,
