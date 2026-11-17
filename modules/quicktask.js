@@ -83,22 +83,30 @@ function requestAiTaskDraft(payload){
   return window.LocalOllama.generate('/api/ai/meeting-task-draft',payload||{});
 }
 
-function translateGitHubCommitToGerman(commit){
-  var original=String(commit&&commit.fullMessage||commit&&commit.message||'').trim();
-  if(!original||!window.LocalOllama||typeof window.LocalOllama.generate!=='function')return Promise.resolve({title:original,description:''});
+function translateGitHubCommitsToGerman(commits){
+  var entries=(Array.isArray(commits)?commits:[]).map(function(commit){
+    return {sha:commit.sha,message:commit.fullMessage||commit.message||''};
+  });
+  if(!entries.length||!window.LocalOllama||typeof window.LocalOllama.generate!=='function')return Promise.resolve(commits||[]);
   return window.LocalOllama.generate('/api/ai/meeting-task-draft',{
     projectId:'github-commit-translation',
     projectTitle:'GitHub-Commit-Dokumentation',
-    draftTitle:original,
-    draftDescription:'Commit-SHA: '+String(commit.sha||''),
-    promptConfig:{prompt:'Uebersetze den folgenden GitHub-Commit fuer deutschsprachige Mitarbeitende. Formuliere einen kurzen deutschen Aufgabentitel und eine sachliche deutsche Beschreibung der technischen Aenderung. Erhalte technische Begriffe, Dateinamen und Versionsnummern. Antworte ausschliesslich als JSON mit einem Objekt task, das die Felder titleDe und descriptionDe enthaelt.'}
+    draftInput:JSON.stringify(entries),
+    promptConfig:{prompt:'Uebersetze jeden GitHub-Commit fuer deutschsprachige Mitarbeitende. Erzeuge pro Eingabe genau einen Eintrag mit derselben SHA, einem kurzen deutschen Titel und einer sachlichen deutschen Beschreibung der technischen Aenderung. Erhalte technische Begriffe, Dateinamen und Versionsnummern. Antworte ausschliesslich als JSON mit taskSuggestions als Array von Objekten mit sha, titleDe und descriptionDe.'}
   }).then(function(result){
-    var task=result&&result.draft&&result.draft.task||{};
-    return {
-      title:String(task.titleDe||'').trim()||original,
-      description:String(task.descriptionDe||'').trim()
-    };
-  }).catch(function(){return {title:original,description:''};});
+    var translations=result&&result.draft&&Array.isArray(result.draft.taskSuggestions)?result.draft.taskSuggestions:[];
+    var bySha={};
+    translations.forEach(function(item){
+      var sha=String(item&&item.sha||'').trim();
+      if(sha)bySha[sha]=item;
+    });
+    return commits.map(function(commit){
+      var translation=bySha[String(commit.sha||'').trim()]||{};
+      commit.germanTitle=String(translation.titleDe||'').trim()||commit.message;
+      commit.germanDescription=String(translation.descriptionDe||'').trim();
+      return commit;
+    });
+  }).catch(function(){return commits;});
 }
 
 function createGermanGitHubTaskDraft(commits,project){
@@ -108,7 +116,7 @@ function createGermanGitHubTaskDraft(commits,project){
   var fallbackSubtasks=entries.map(function(entry){
     return entry.title+' | '+(entry.description||'Technische Aenderung umgesetzt.')+' | Commit: '+entry.sha+' | Autor: '+entry.author;
   });
-  var fallbackTitle='Implementierungen der letzten 12 Stunden dokumentieren';
+  var fallbackTitle='Implementierungen der letzten 24 Stunden dokumentieren';
   var fallbackDescription='Nachtraegliche Dokumentation der bereits umgesetzten GitHub-Commits fuer das Projekt.';
   if(!window.LocalOllama||typeof window.LocalOllama.generate!=='function')return Promise.resolve({title:fallbackTitle,description:fallbackDescription,subtasks:fallbackSubtasks,effortHours:Math.max(0,entries.length)});
   return window.LocalOllama.generate('/api/ai/meeting-task-draft',{
@@ -138,7 +146,7 @@ function getQuickTaskGitHubToken(){
 function fetchQuickTaskGitHubCommits(project){
   var github=project&&project.github?project.github:{};
   if(!github.owner||!github.repo)return Promise.reject(new Error('Das Projekt hat keinen GitHub-Link.'));
-  var since=Date.now()-(12*60*60*1000);
+  var since=Date.now()-(24*60*60*1000);
   var token=getQuickTaskGitHubToken();
 
   function requestPage(page,found){
@@ -404,7 +412,7 @@ function openQuickTaskModal(){
         +'<div class="task-ai-actions">'
           +'<button type="button" class="btn btn-secondary" id="qtm-ai-fill">KI-Entwurf aus Titel + Beschreibung</button>'
           +'<button type="button" class="btn btn-secondary" id="qtm-ai-assign">KI-Zuweisung</button>'
-          +'<button type="button" class="btn btn-secondary" id="qtm-github-commits">GitHub-Commits der letzten 12 Stunden</button>'
+          +'<button type="button" class="btn btn-secondary" id="qtm-github-commits">GitHub-Commits der letzten 24 Stunden</button>'
           +'<button type="button" class="btn btn-secondary hidden" id="qtm-ai-chain">Kettenvorschlag uebernehmen</button>'
         +'</div>'
         +'<label class="task-ai-check"><input type="checkbox" id="qtm-ai-autoassign" checked> Mitarbeiter automatisch vorschlagen</label>'
@@ -860,19 +868,13 @@ function openQuickTaskModal(){
         fetchQuickTaskGitHubCommits(selection.project).then(function(commits){
           if(!review)return;
           if(!commits.length){
-            review.innerHTML='<div>Keine neuen Commits der letzten 12 Stunden gefunden.</div>';
+            review.innerHTML='<div>Keine neuen Commits der letzten 24 Stunden gefunden.</div>';
             review.classList.remove('hidden');
             updateAiStatus('Keine neuen Commits im Zeitfenster.',false);
             return;
           }
           updateAiStatus('Commit-Informationen werden auf Deutsch vorbereitet ...',false);
-          Promise.all(commits.map(function(commit){
-            return translateGitHubCommitToGerman(commit).then(function(translation){
-              commit.germanTitle=translation.title;
-              commit.germanDescription=translation.description;
-              return commit;
-            });
-          })).then(function(translatedCommits){
+          translateGitHubCommitsToGerman(commits).then(function(translatedCommits){
           review.innerHTML='<strong>Commit-Teilaufgaben pruefen</strong>'
             +translatedCommits.map(function(commit){
               var existing=getGitHubCommitDocumentationTaskId(commit.sha);
