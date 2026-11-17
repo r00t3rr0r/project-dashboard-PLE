@@ -1,4 +1,6 @@
 import json
+import hashlib
+import http.client
 import os
 import sys
 import tempfile
@@ -6,6 +8,7 @@ import threading
 import unittest
 import urllib.parse
 import urllib.request
+import urllib.error
 from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,15 +29,22 @@ class StorageConcurrencyTest(unittest.TestCase):
         storage.BACKUP_STAMP_PATH = os.path.join(data_dir, 'backup.stamp')
         storage.KV_SNAPSHOT_PATH = os.path.join(data_dir, 'snapshot.json')
         storage.KV_SNAPSHOT_GZIP_PATH = storage.KV_SNAPSHOT_PATH + '.gz'
+        storage.TASK_ATTACHMENT_DIR = os.path.join(data_dir, 'task-attachments')
         storage.KV_SNAPSHOT_METADATA = None
         storage.KV_SNAPSHOT_REVISION = 0
         storage.BACKUP_DELAY_SECONDS = 60
-        storage.ADMIN_PIN = 'test-pin'
+        storage.AUTH_ATTEMPTS.clear()
 
         connection = storage.open_db_connection(storage.DB_PATH)
         connection.execute(
             'CREATE TABLE kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL, updatedAt TEXT NOT NULL)'
         )
+        connection.execute('INSERT INTO kv_store VALUES (?, ?, ?)', ('pd_employees', json.dumps([{
+            'id': 'test-admin', 'auth': {'accessLevel': 'admin', 'login': {
+                'enabled': True, 'username': 'test.admin',
+                'passwordHash': hashlib.sha256(b'test-password').hexdigest()
+            }}
+        }]), storage.utc_now_iso_z()))
         connection.commit()
         connection.close()
 
@@ -42,6 +52,15 @@ class StorageConcurrencyTest(unittest.TestCase):
         cls.base_url = 'http://127.0.0.1:' + str(cls.server.server_address[1])
         cls.server_thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.server_thread.start()
+        cls.cookie = cls.login_cookie(False)
+
+    @classmethod
+    def login_cookie(cls, remember):
+        request = urllib.request.Request(cls.base_url + '/api/auth/login', data=json.dumps({
+            'username': 'test.admin', 'password': 'test-password', 'remember': remember
+        }).encode(), headers={'Content-Type': 'application/json'})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.headers['Set-Cookie']
 
     @classmethod
     def tearDownClass(cls):
@@ -63,11 +82,128 @@ class StorageConcurrencyTest(unittest.TestCase):
             method=method,
             headers={
                 'Content-Type': 'application/json',
-                'X-Admin-Pin': storage.ADMIN_PIN
+                'Cookie': cls.cookie.split(';')[0]
             }
         )
         with urllib.request.urlopen(request, timeout=10) as response:
             return response.status, json.loads(response.read().decode('utf-8'))
+
+    def test_authentication_required_and_pin_removed(self):
+        for path in ('/api/kv', '/api/kv/stream?pin=1337', '/api/auth/session'):
+            request = urllib.request.Request(self.base_url + path, headers={'X-Admin-Pin': '1337'})
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(request, timeout=10)
+            self.assertEqual(caught.exception.code, 401)
+
+    def test_task_attachment_upload_and_download(self):
+        content = b'\x00\xfftask attachment\n'
+        unauthenticated = urllib.request.Request(self.base_url + '/api/task-attachments', data=content, method='POST')
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(unauthenticated, timeout=10)
+        self.assertEqual(caught.exception.code, 401)
+        request = urllib.request.Request(
+            self.base_url + '/api/task-attachments', data=content, method='POST',
+            headers={'Content-Type': 'application/octet-stream', 'Cookie': self.cookie.split(';')[0]}
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            attachment = json.load(response)
+        self.assertTrue(attachment['url'].startswith('/api/task-attachments/'))
+        download = urllib.request.Request(self.base_url + attachment['url'], headers={'Cookie': self.cookie.split(';')[0]})
+        with urllib.request.urlopen(download, timeout=10) as response:
+            self.assertEqual(response.read(), content)
+            self.assertEqual(response.headers['Content-Type'], 'application/octet-stream')
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(self.base_url + attachment['url'], timeout=10)
+        self.assertEqual(caught.exception.code, 401)
+        invalid = urllib.request.Request(self.base_url + '/api/task-attachments/not-an-id', headers={'Cookie': self.cookie.split(';')[0]})
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(invalid, timeout=10)
+        self.assertEqual(caught.exception.code, 404)
+
+        empty = urllib.request.Request(self.base_url + '/api/task-attachments', data=b'', method='POST', headers={'Cookie': self.cookie.split(';')[0]})
+        with urllib.request.urlopen(empty, timeout=10) as response:
+            empty_attachment = json.load(response)
+        empty_download = urllib.request.Request(self.base_url + empty_attachment['url'], headers={'Cookie': self.cookie.split(';')[0]})
+        with urllib.request.urlopen(empty_download, timeout=10) as response:
+            self.assertEqual(response.read(), b'')
+
+    def test_task_attachment_larger_than_previous_limit(self):
+        chunk = b'x' * (1024 * 1024)
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_address[1], timeout=60)
+        connection.putrequest('POST', '/api/task-attachments')
+        connection.putheader('Cookie', self.cookie.split(';')[0])
+        connection.putheader('Content-Type', 'application/octet-stream')
+        connection.putheader('Content-Length', str(100 * len(chunk) + 1))
+        connection.endheaders()
+        for _ in range(100):
+            connection.send(chunk)
+        connection.send(b'y')
+        response = connection.getresponse()
+        self.assertEqual(response.status, 200)
+        attachment = json.load(response)
+        connection.close()
+        path = os.path.join(storage.TASK_ATTACHMENT_DIR, attachment['url'].rsplit('/', 1)[-1])
+        self.assertEqual(os.path.getsize(path), 100 * len(chunk) + 1)
+        with open(path, 'rb') as uploaded:
+            self.assertEqual(uploaded.read(1), b'x')
+            uploaded.seek(-1, os.SEEK_END)
+            self.assertEqual(uploaded.read(), b'y')
+
+    def test_login_dropdown_only_exposes_names_and_usernames(self):
+        with urllib.request.urlopen(self.base_url + '/api/auth/users', timeout=10) as response:
+            payload = json.load(response)
+        self.assertEqual(payload, {'users': [{'name': 'test.admin', 'username': 'test.admin'}]})
+
+    def test_expired_session_is_rejected(self):
+        cookie = self.login_cookie(True).split(';')[0]
+        token = hashlib.sha256(cookie.split('=', 1)[1].encode()).hexdigest()
+        with storage.open_db_connection() as connection:
+            connection.execute('UPDATE auth_sessions SET expires = 0 WHERE token = ?', (token,))
+        request = urllib.request.Request(self.base_url + '/api/auth/session', headers={'Cookie': cookie})
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(request, timeout=10)
+        self.assertEqual(caught.exception.code, 401)
+
+    def test_session_remember_restore_and_logout(self):
+        remembered = self.login_cookie(True)
+        self.assertIn('Max-Age=2592000', remembered)
+        self.assertIn('HttpOnly', remembered)
+        self.assertIn('SameSite=Lax', remembered)
+        self.assertNotIn('Max-Age', self.cookie)
+        headers = {'Cookie': remembered.split(';')[0]}
+        request = urllib.request.Request(self.base_url + '/api/auth/session', headers=headers)
+        with urllib.request.urlopen(request, timeout=10) as response:
+            self.assertEqual(json.load(response)['employeeId'], 'test-admin')
+        request = urllib.request.Request(self.base_url + '/api/auth/logout', data=b'{}', headers=headers)
+        with urllib.request.urlopen(request, timeout=10) as response:
+            self.assertIn('Max-Age=0', response.headers['Set-Cookie'])
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(urllib.request.Request(self.base_url + '/api/kv', headers=headers), timeout=10)
+        self.assertEqual(caught.exception.code, 401)
+
+    def test_wrong_password_and_origin_are_rejected(self):
+        for headers, expected in (({}, 401), ({'Origin': 'http://untrusted.invalid'}, 403)):
+            request = urllib.request.Request(self.base_url + '/api/auth/login', data=json.dumps({
+                'username': 'test.admin', 'password': 'wrong'
+            }).encode(), headers={'Content-Type': 'application/json', **headers})
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(request, timeout=10)
+            self.assertEqual(caught.exception.code, expected)
+
+    def test_private_files_are_not_served(self):
+        for path in ('/data/projekt-dashboard.backup.json', '/.git/config', '/storage_server.py'):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(self.base_url + path, timeout=10)
+            self.assertEqual(caught.exception.code, 403)
+
+    def test_supported_password_formats(self):
+        handler = object.__new__(storage.StorageHandler)
+        password = 'test-password'
+        sha = hashlib.sha256(password.encode()).hexdigest()
+        derived = hashlib.pbkdf2_hmac('sha256', password.encode(), b'salt', 10000).hex()
+        for stored in (sha, 'compat$fallback:0$' + sha, 'pbkdf2$10000$73616c74$' + derived):
+            self.assertTrue(handler._verify_login_password(password, stored))
+            self.assertFalse(handler._verify_login_password('wrong', stored))
 
     def test_parallel_writes_and_targeted_reads(self):
         entries = {'load-test-' + str(index): 'value-' + str(index) for index in range(24)}
@@ -106,6 +242,16 @@ class StorageConcurrencyTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertFalse(payload['exists'])
         self.assertIsNone(payload['value'])
+
+    def test_health_request_does_not_wait_for_running_backup(self):
+        storage.BACKUP_RUN_LOCK.acquire()
+        try:
+            status, payload = self.request_json('GET', '/api/health')
+        finally:
+            storage.BACKUP_RUN_LOCK.release()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload['status'], 'ok')
 
 
 if __name__ == '__main__':

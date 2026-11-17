@@ -127,7 +127,11 @@ function navigateTo(page){
   // Update nav active state
   document.querySelectorAll('.nav-menu a').forEach(function(a){a.classList.remove('active');});
   var link=document.querySelector('[data-page="'+page+'"]');
-  if(link)link.classList.add('active');
+  if(link){
+    link.classList.add('active');
+    var group=link.closest('.nav-group details');
+    if(group)group.open=true;
+  }
 
   updatePageMeta(page);
   saveActivePage(page);
@@ -146,6 +150,7 @@ function navigateTo(page){
 
 function setupNavigation(){
   document.querySelectorAll('.nav-menu a').forEach(function(link){
+    link.title=link.getAttribute('data-label') || link.textContent.trim();
     link.addEventListener('click',function(e){
       e.preventDefault();
       var page=this.dataset.page;

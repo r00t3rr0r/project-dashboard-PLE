@@ -103,7 +103,7 @@ Alle folgenden Schlüssel speichern **JSON-encoded Arrays** (`[]`). Der Default-
 | `timeTracking` | `object`  | Arbeitszeit/Pausenstatus: `totalMinutes`, `activeStartedAt`, `inProgressConfirmedAt`, `isPaused`, `pausedAt`, `pauseReasonPending`, `lastPauseReason`, `minutesByDate`, `pauseHistory` |
 | `subtasks`    | `object[]` | Liste der Teilaufgaben (`id`, `title`, `completed`, `createdAt`) |
 | `notes`       | `object[]` | Hinweise/Notizen zur Aufgabe (`id`, `text`, `createdAt`) |
-| `attachments` | `object[]` | Datei-/Link-Hinweise (`id`, `name`, `url`, `type`, `addedAt`) |
+| `attachments` | `object[]` | Dateien/Links (`id`, `name`, `url`, `type`, `size`, `addedAt`); Alt-Dateien koennen `dataUrl` enthalten |
 | `createdAt`   | `string`   | ISO-8601 Timestamp                            |
 | `updatedAt`   | `string`   | ISO-8601 Timestamp                            |
 | `completedAt` | `string`   | ISO-8601 Abschlusszeitpunkt; wird beim Wiederöffnen geleert |

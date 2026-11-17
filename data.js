@@ -176,20 +176,6 @@
     });
   }
 
-  function getStoredAdminPin() {
-    try {
-      if (window.ProjektDashboardSecurity && typeof window.ProjektDashboardSecurity.readPin === 'function') {
-        return String(window.ProjektDashboardSecurity.readPin() || '').trim();
-      }
-    } catch (_err) {}
-
-    try {
-      return String(window.sessionStorage.getItem('pd_admin_pin') || '').trim();
-    } catch (_err2) {
-      return '';
-    }
-  }
-
   function getRemoteKvStreamCandidates() {
     var candidates = getRemoteKvCandidates();
     return candidates.map(function (endpoint) {
@@ -200,12 +186,7 @@
   }
 
   function buildRemoteKvStreamUrl(baseUrl) {
-    var endpoint = String(baseUrl || '');
-    var pin = getStoredAdminPin();
-    if (!pin) return endpoint;
-
-    var separator = endpoint.indexOf('?') === -1 ? '?' : '&';
-    return endpoint + separator + 'pin=' + encodeURIComponent(pin);
+    return String(baseUrl || '');
   }
 
   function fetchRemoteKv(method, payload, queryString) {
@@ -263,7 +244,7 @@
                 __authError: true,
                 message: body && body.error
                   ? String(body.error)
-                  : 'Admin-PIN erforderlich oder ungueltig.'
+                  : 'Anmeldung erforderlich.'
               };
             });
           }
@@ -272,8 +253,9 @@
         })
         .then(function (json) {
           if (json && json.__authError) {
+            window.dispatchEvent(new CustomEvent('authenticationRequired'));
             remoteKvLastCheckedAt = new Date().toISOString();
-            remoteKvLastError = json.message || 'Admin-PIN erforderlich oder ungueltig.';
+            remoteKvLastError = json.message || 'Anmeldung erforderlich.';
             remoteKvReachable = false;
             emitStorageStatusChanged();
             return { ok: false, path: endpoint, payload: null, authRequired: true };
@@ -971,8 +953,7 @@
     if (!remoteKvEnabled || typeof window.EventSource !== 'function') return;
     if (remoteStreamSource) return;
 
-    var pin = getStoredAdminPin();
-    if (!pin) {
+    if (!window.AuthManager || !window.AuthManager.getCurrentUser()) {
       scheduleRemoteKvStreamReconnect();
       return;
     }
@@ -2610,11 +2591,57 @@
   }
 
   /** @param {Task} task */
+  function updateTaskAssignmentResponses(task, previousTask) {
+    if (!task) return;
+    var previousIds = [];
+    var hasPreviousAssignmentSnapshot = !previousTask;
+    if (previousTask) {
+      if (Array.isArray(previousTask.assignmentResponseAssigneeIds)) {
+        previousIds = previousTask.assignmentResponseAssigneeIds.slice();
+        hasPreviousAssignmentSnapshot = true;
+      } else {
+        var history = Array.isArray(previousTask.history) ? previousTask.history : [];
+        var latestHistory = history.length ? history[history.length - 1] : null;
+        if (latestHistory && Array.isArray(latestHistory.assigneeIds)) {
+          previousIds = latestHistory.assigneeIds.slice();
+          if (latestHistory.assigneeId) previousIds.push(latestHistory.assigneeId);
+          hasPreviousAssignmentSnapshot = true;
+        } else if (latestHistory && Object.prototype.hasOwnProperty.call(latestHistory, 'assigneeId')) {
+          previousIds = latestHistory.assigneeId ? [latestHistory.assigneeId] : [];
+          hasPreviousAssignmentSnapshot = true;
+        }
+      }
+    }
+    var assigneeIds = (Array.isArray(task.assigneeIds) ? task.assigneeIds : [])
+      .concat(task.assigneeId ? [task.assigneeId] : [])
+      .map(function (id) { return String(id || '').trim(); })
+      .filter(Boolean);
+    var responses = Object.assign(
+      {},
+      previousTask && previousTask.assignmentResponses && typeof previousTask.assignmentResponses === 'object' ? previousTask.assignmentResponses : {},
+      task.assignmentResponses && typeof task.assignmentResponses === 'object' && !Array.isArray(task.assignmentResponses) ? task.assignmentResponses : {}
+    );
+
+    assigneeIds.forEach(function (employeeId) {
+      if (previousTask && (!hasPreviousAssignmentSnapshot || previousIds.indexOf(employeeId) !== -1)) return;
+      responses[employeeId] = {
+        status: 'pending',
+        assignedAt: task.updatedAt || task.createdAt || new Date().toISOString(),
+        respondedAt: '',
+        text: ''
+      };
+    });
+    task.assignmentResponses = responses;
+    task.assignmentResponseAssigneeIds = assigneeIds.slice();
+  }
+
+  /** @param {Task} task */
   function createTask(task) {
     var nowIso = new Date().toISOString();
     if (!task.createdAt) task.createdAt = nowIso;
     if (!task.updatedAt) task.updatedAt = task.createdAt;
     task = normalizeTask(task);
+    updateTaskAssignmentResponses(task, null);
     tasks.push(task);
     reconcileTaskDependencies();
     var calendarChanged = syncTaskCalendarEvents(task);
@@ -2634,8 +2661,10 @@
   function updateTask(task) {
     var idx = tasks.findIndex(function (t) { return t.id === task.id; });
     if (idx !== -1) {
+      var previousTask = tasks[idx];
       task.updatedAt = new Date().toISOString();
       task = normalizeTask(task);
+      updateTaskAssignmentResponses(task, previousTask);
       appendTaskHistoryUpdate(task);
       tasks[idx] = task;
       reconcileTaskDependencies();

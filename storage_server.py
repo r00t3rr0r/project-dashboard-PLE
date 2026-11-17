@@ -4,6 +4,10 @@ import gzip
 import os
 import re
 import hmac
+import hashlib
+import secrets
+from http.cookies import SimpleCookie
+from contextlib import contextmanager
 import queue
 import sqlite3
 import shutil
@@ -29,9 +33,12 @@ KV_SNAPSHOT_PATH = os.path.join(ROOT, 'data', '.projekt-dashboard.snapshot.json'
 KV_SNAPSHOT_GZIP_PATH = KV_SNAPSHOT_PATH + '.gz'
 KNOWLEDGE_DIR = os.path.join(ROOT, 'data', 'project-knowledge')
 MEETINGS_DIR = os.path.join(ROOT, 'data', 'meetings')
+TASK_ATTACHMENT_DIR = os.path.join(ROOT, 'data', 'task-attachments')
 HOST = os.environ.get('PROJECT_DASHBOARD_STORAGE_HOST', '0.0.0.0')
 PORT = int(os.environ.get('PROJECT_DASHBOARD_STORAGE_PORT', '8766'))
-ADMIN_PIN = str(os.environ.get('PROJECT_DASHBOARD_ADMIN_PIN', '1337'))
+AUTH_COOKIE = 'pd_session'
+AUTH_ATTEMPTS = {}
+AUTH_LOCK = threading.RLock()
 OLLAMA_BASE_URL = os.environ.get('OLLAMA_BASE_URL', 'http://127.0.0.1:11434').rstrip('/')
 OLLAMA_BASE_URLS = tuple(
     url.strip().rstrip('/')
@@ -247,61 +254,69 @@ def ensure_ollama_runtime():
 
 
 def ensure_daily_backup(force=False):
-    with BACKUP_RUN_LOCK:
-        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-        if not os.path.exists(DB_PATH):
-            return False
+    if not BACKUP_RUN_LOCK.acquire(blocking=force):
+        return False
+    try:
+        return _ensure_daily_backup_locked(force)
+    finally:
+        BACKUP_RUN_LOCK.release()
 
-        today = date.today().isoformat()
-        last_backup_day = ''
-        if os.path.exists(BACKUP_STAMP_PATH):
-            try:
-                with open(BACKUP_STAMP_PATH, 'r', encoding='utf-8') as handle:
-                    last_backup_day = handle.read().strip()
-            except Exception:
-                last_backup_day = ''
 
-        if not force and last_backup_day == today and os.path.exists(BACKUP_PATH) and os.path.exists(BACKUP_JSON_PATH):
-            return False
+def _ensure_daily_backup_locked(force):
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    if not os.path.exists(DB_PATH):
+        return False
 
-        backup_descriptor, backup_temp_path = tempfile.mkstemp(
-            prefix='.projekt-dashboard.backup.', suffix='.sqlite.tmp', dir=os.path.dirname(BACKUP_PATH)
-        )
-        os.close(backup_descriptor)
+    today = date.today().isoformat()
+    last_backup_day = ''
+    if os.path.exists(BACKUP_STAMP_PATH):
         try:
-            source_conn = open_db_connection(DB_PATH)
-            backup_conn = sqlite3.connect(backup_temp_path, timeout=10)
-            backup_conn.execute('PRAGMA journal_mode=DELETE')
-            backup_conn.execute('PRAGMA synchronous=FULL')
-            try:
-                source_conn.backup(backup_conn)
-                backup_conn.commit()
-            finally:
-                backup_conn.close()
-                source_conn.close()
-            _fsync_file(backup_temp_path)
-            os.replace(backup_temp_path, BACKUP_PATH)
-            _fsync_directory(os.path.dirname(BACKUP_PATH))
+            with open(BACKUP_STAMP_PATH, 'r', encoding='utf-8') as handle:
+                last_backup_day = handle.read().strip()
         except Exception:
-            try:
-                os.unlink(backup_temp_path)
-            except OSError:
-                pass
-            raise
+            last_backup_day = ''
 
-        snapshot_conn = open_db_connection(DB_PATH)
+    if not force and last_backup_day == today and os.path.exists(BACKUP_PATH) and os.path.exists(BACKUP_JSON_PATH):
+        return False
+
+    backup_descriptor, backup_temp_path = tempfile.mkstemp(
+        prefix='.projekt-dashboard.backup.', suffix='.sqlite.tmp', dir=os.path.dirname(BACKUP_PATH)
+    )
+    os.close(backup_descriptor)
+    try:
+        source_conn = open_db_connection(DB_PATH)
+        backup_conn = sqlite3.connect(backup_temp_path, timeout=10)
+        backup_conn.execute('PRAGMA journal_mode=DELETE')
+        backup_conn.execute('PRAGMA synchronous=FULL')
         try:
-            rows = snapshot_conn.execute('SELECT key, value FROM kv_store ORDER BY key').fetchall()
-            payload = {
-                'exportedAt': utc_now_iso_z(),
-                'data': {key: value for key, value in rows}
-            }
-            _atomic_write_text(BACKUP_JSON_PATH, json.dumps(payload, ensure_ascii=False, indent=2) + '\n')
+            source_conn.backup(backup_conn)
+            backup_conn.commit()
         finally:
-            snapshot_conn.close()
+            backup_conn.close()
+            source_conn.close()
+        _fsync_file(backup_temp_path)
+        os.replace(backup_temp_path, BACKUP_PATH)
+        _fsync_directory(os.path.dirname(BACKUP_PATH))
+    except Exception:
+        try:
+            os.unlink(backup_temp_path)
+        except OSError:
+            pass
+        raise
 
-        _atomic_write_text(BACKUP_STAMP_PATH, today)
-        return True
+    snapshot_conn = open_db_connection(DB_PATH)
+    try:
+        rows = snapshot_conn.execute('SELECT key, value FROM kv_store ORDER BY key').fetchall()
+        payload = {
+            'exportedAt': utc_now_iso_z(),
+            'data': {key: value for key, value in rows}
+        }
+        _atomic_write_text(BACKUP_JSON_PATH, json.dumps(payload, ensure_ascii=False, indent=2) + '\n')
+    finally:
+        snapshot_conn.close()
+
+    _atomic_write_text(BACKUP_STAMP_PATH, today)
+    return True
 
 
 def init_db():
@@ -387,19 +402,33 @@ class StorageHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         ensure_daily_backup()
         parsed = urlparse(self.path)
+        if parsed.path == '/api/auth/users':
+            with self._auth_connection() as connection:
+                users = []
+                for employee in self._auth_employees(connection):
+                    login = employee.get('auth', {}).get('login', {})
+                    if login.get('enabled') and login.get('passwordHash') and login.get('username'):
+                        users.append({'username': login['username'], 'name': str(employee.get('name') or login['username'])})
+            users.sort(key=lambda user: (user['name'].casefold(), user['username']))
+            self._send_json({'users': users})
+            return
         if parsed.path == '/api/kv/stream':
-            if not self._require_admin_pin_for_request(parsed.path, parsed=parsed):
+            if not self._require_session(parsed.path):
                 return
             self._handle_kv_stream()
             return
-        if not self._require_admin_pin_for_request(parsed.path):
+        if not self._require_session(parsed.path):
+            return
+        if parsed.path.startswith('/api/task-attachments/'):
+            self._handle_task_attachment_get(parsed.path)
             return
         meeting_project_id = self._extract_meeting_project_id(parsed.path)
         if meeting_project_id:
             self._handle_meetings_get(meeting_project_id)
             return
-        if parsed.path == '/api/auth/validate':
-            self._send_json({'ok': True})
+        if parsed.path == '/api/auth/session':
+            session = self._verified_session
+            self._send_json({'ok': True, 'employeeId': session[0], 'remember': session[1]})
             return
         if parsed.path == '/api/kv':
             if 'key' in parse_qs(parsed.query or '', keep_blank_values=True):
@@ -432,7 +461,19 @@ class StorageHandler(BaseHTTPRequestHandler):
             self._send_json({'error': 'Origin not allowed.'}, status=403)
             return
         parsed = urlparse(self.path)
-        if not self._require_admin_pin_for_request(parsed.path):
+        if parsed.path == '/api/auth/login':
+            self._handle_login()
+            return
+        if parsed.path == '/api/auth/logout':
+            with self._auth_connection() as connection:
+                connection.execute('DELETE FROM auth_sessions WHERE token = ?', (self._session_token(),))
+            self._auth_cookie = AUTH_COOKIE + '=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'
+            self._send_json({'ok': True})
+            return
+        if not self._require_session(parsed.path):
+            return
+        if parsed.path == '/api/task-attachments':
+            self._handle_task_attachment_post()
             return
         meeting_project_id = self._extract_meeting_project_id(parsed.path)
         if meeting_project_id:
@@ -470,6 +511,68 @@ class StorageHandler(BaseHTTPRequestHandler):
             return
         self.send_response(404)
         self.end_headers()
+
+    def _handle_task_attachment_post(self):
+        try:
+            length = int(self.headers.get('Content-Length', ''))
+            if length < 0:
+                raise ValueError('Invalid content length')
+        except ValueError:
+            self._send_json({'error': 'Content-Length erforderlich.'}, status=400)
+            return
+
+        temporary_path = None
+        try:
+            os.makedirs(TASK_ATTACHMENT_DIR, exist_ok=True)
+            descriptor, temporary_path = tempfile.mkstemp(prefix='.upload-', dir=TASK_ATTACHMENT_DIR)
+            with os.fdopen(descriptor, 'wb') as output:
+                remaining = length
+                while remaining:
+                    chunk = self.rfile.read(min(remaining, KV_STREAM_CHUNK_SIZE))
+                    if not chunk:
+                        raise OSError('Upload unvollstaendig.')
+                    output.write(chunk)
+                    remaining -= len(chunk)
+                output.flush()
+                os.fsync(output.fileno())
+            attachment_id = uuid.uuid4().hex
+            os.replace(temporary_path, os.path.join(TASK_ATTACHMENT_DIR, attachment_id))
+            temporary_path = None
+            _fsync_directory(TASK_ATTACHMENT_DIR)
+        except OSError as exc:
+            self._send_json({'error': 'Datei konnte nicht gespeichert werden: ' + str(exc)}, status=500)
+            return
+        finally:
+            if temporary_path:
+                try:
+                    os.unlink(temporary_path)
+                except OSError:
+                    pass
+        self._send_json({'url': '/api/task-attachments/' + attachment_id})
+
+    def _handle_task_attachment_get(self, path):
+        attachment_id = path.rsplit('/', 1)[-1]
+        if not re.fullmatch(r'[0-9a-f]{32}', attachment_id):
+            self._send_json({'error': 'Datei nicht gefunden.'}, status=404)
+            return
+        try:
+            attachment = open(os.path.join(TASK_ATTACHMENT_DIR, attachment_id), 'rb')
+        except OSError:
+            self._send_json({'error': 'Datei nicht gefunden.'}, status=404)
+            return
+        with attachment:
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/octet-stream')
+            self.send_header('Content-Disposition', 'attachment')
+            self.send_header('Content-Length', str(os.fstat(attachment.fileno()).st_size))
+            self.send_header('Cache-Control', 'no-store')
+            self._apply_cors_headers()
+            self._apply_security_headers()
+            self.end_headers()
+            try:
+                shutil.copyfileobj(attachment, self.wfile, KV_STREAM_CHUNK_SIZE)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
     def _handle_kv_post(self):
         length = int(self.headers.get('Content-Length', '0'))
@@ -1813,7 +1916,7 @@ class StorageHandler(BaseHTTPRequestHandler):
         self._apply_cors_headers()
         self._apply_security_headers()
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-GitHub-Token, X-Admin-Pin')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-GitHub-Token')
         self.send_header('Access-Control-Max-Age', '600')
         self.end_headers()
 
@@ -2126,41 +2229,114 @@ class StorageHandler(BaseHTTPRequestHandler):
     def _is_request_origin_allowed(self):
         return self._is_allowed_origin(self._request_origin())
 
-    def _is_pin_protected_path(self, path):
-        if not path or not path.startswith('/api/'):
-            return False
-        return path != '/api/health'
+    @contextmanager
+    def _auth_connection(self):
+        connection = open_db_connection()
+        try:
+            connection.execute('CREATE TABLE IF NOT EXISTS auth_sessions (token TEXT PRIMARY KEY, employee_id TEXT, password_tag TEXT, expires REAL, remember INTEGER)')
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
-    def _read_admin_pin_header(self):
-        return str(self.headers.get('X-Admin-Pin', '') or '').strip()
+    def _session_token(self):
+        cookie = SimpleCookie()
+        try:
+            cookie.load(self.headers.get('Cookie', ''))
+            value = cookie[AUTH_COOKIE].value if AUTH_COOKIE in cookie else ''
+        except Exception:
+            value = ''
+        return hashlib.sha256(value.encode()).hexdigest()
 
-    def _read_admin_pin_from_query(self, parsed):
-        if not parsed:
-            return ''
-        params = parse_qs(parsed.query or '')
-        return str((params.get('pin') or [''])[0] or '').strip()
+    def _auth_employees(self, connection):
+        row = connection.execute('SELECT value FROM kv_store WHERE key = ?', ('pd_employees',)).fetchone()
+        return json.loads(row[0]) if row else []
 
-    def _is_admin_pin_valid(self):
-        candidate = self._read_admin_pin_header()
-        if not ADMIN_PIN:
+    def _get_auth_session(self):
+        with self._auth_connection() as connection:
+            row = connection.execute('SELECT employee_id, remember, password_tag FROM auth_sessions WHERE token = ? AND expires > ?', (self._session_token(), time.time())).fetchone()
+            if row:
+                for employee in self._auth_employees(connection):
+                    login = employee.get('auth', {}).get('login', {})
+                    tag = hashlib.sha256(str(login.get('passwordHash', '')).encode()).hexdigest()
+                    if str(employee.get('id')) == row[0] and login.get('enabled') and hmac.compare_digest(tag, row[2]):
+                        return row
+        return None
+
+    def _require_session(self, path):
+        if not path.startswith('/api/') or path == '/api/health':
             return True
-        return hmac.compare_digest(candidate, ADMIN_PIN)
-
-    def _require_admin_pin_for_request(self, path, parsed=None):
-        if not self._is_pin_protected_path(path):
+        self._verified_session = self._get_auth_session()
+        if self._verified_session:
             return True
-        if self._is_admin_pin_valid():
-            return True
-
-        # EventSource cannot attach custom headers, therefore /api/kv/stream
-        # additionally accepts the PIN via query string.
-        if path == '/api/kv/stream' and ADMIN_PIN:
-            query_pin = self._read_admin_pin_from_query(parsed)
-            if query_pin and hmac.compare_digest(query_pin, ADMIN_PIN):
-                return True
-
-        self._send_json({'error': 'Admin PIN erforderlich oder ungueltig.', 'authRequired': True}, status=401)
+        self._send_json({'error': 'Anmeldung erforderlich.', 'authRequired': True}, status=401)
         return False
+
+    def _verify_login_password(self, password, stored):
+        encoded = password.encode('utf-8')
+        sha = hashlib.sha256(encoded).hexdigest()
+        fallback = 0
+        utf16 = password.encode('utf-16-le')
+        for offset in range(0, len(utf16), 2):
+            fallback = (31 * fallback + int.from_bytes(utf16[offset:offset + 2], 'little')) & 0xffffffff
+        candidates = [sha, 'fallback:' + str(fallback)]
+        try:
+            if stored.startswith('pbkdf2$'):
+                scheme, iterations, salt, expected = stored.split('$')
+                count = int(iterations)
+                if not 10000 <= count <= 2000000:
+                    return False
+                actual = hashlib.pbkdf2_hmac('sha256', encoded, bytes.fromhex(salt), count, dklen=32).hex()
+                return hmac.compare_digest(actual, expected)
+            hashes = stored.split('$')[1:] if stored.startswith('compat$') else [stored]
+            return any(hmac.compare_digest(candidate, expected) for candidate in candidates for expected in hashes if expected)
+        except (ValueError, TypeError):
+            return False
+
+    def _handle_login(self):
+        payload, error = self._read_json_payload()
+        if error:
+            self._send_json({'error': 'Ungueltige Anmeldung.'}, status=400)
+            return
+        address = self.client_address[0]
+        now = time.time()
+        with AUTH_LOCK:
+            attempts = [stamp for stamp in AUTH_ATTEMPTS.get(address, []) if now - stamp < 300]
+            AUTH_ATTEMPTS[address] = attempts
+            if len(attempts) >= 20:
+                self._send_json({'error': 'Zu viele Anmeldeversuche. Bitte spaeter erneut versuchen.'}, status=429)
+                return
+            attempts.append(now)
+        username = re.sub(r'[^a-z0-9]+', '.', str(payload.get('username', '')).strip().lower()).strip('.')
+        with self._auth_connection() as connection:
+            for employee in self._auth_employees(connection):
+                login = employee.get('auth', {}).get('login', {})
+                stored = str(login.get('passwordHash', ''))
+                if not username or not login.get('enabled') or login.get('username') != username:
+                    continue
+                if not self._verify_login_password(str(payload.get('password', '')), stored):
+                    break
+                remember = payload.get('remember') is True
+                lifetime = 30 * 86400 if remember else 8 * 3600
+                token = secrets.token_urlsafe(32)
+                connection.execute('DELETE FROM auth_sessions WHERE expires <= ?', (now,))
+                connection.execute('INSERT INTO auth_sessions VALUES (?, ?, ?, ?, ?)', (
+                    hashlib.sha256(token.encode()).hexdigest(), str(employee['id']),
+                    hashlib.sha256(stored.encode()).hexdigest(), now + lifetime, int(remember)))
+                self._auth_cookie = AUTH_COOKIE + '=' + token + '; Path=/; HttpOnly; SameSite=Lax'
+                if remember:
+                    self._auth_cookie += '; Max-Age=' + str(lifetime)
+                if self.headers.get('X-Forwarded-Proto', '').lower() == 'https':
+                    self._auth_cookie += '; Secure'
+                connection.commit()
+                with AUTH_LOCK:
+                    AUTH_ATTEMPTS.pop(address, None)
+                self._send_json({'ok': True, 'employeeId': str(employee['id']), 'remember': remember})
+                return
+        self._send_json({'error': 'Benutzername oder Passwort ist nicht korrekt.'}, status=401)
 
     def _apply_cors_headers(self):
         origin = self._request_origin()
@@ -2348,6 +2524,9 @@ class StorageHandler(BaseHTTPRequestHandler):
             self.send_response(status)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.send_header('Content-Length', str(len(payload)))
+            self.send_header('Cache-Control', 'no-store')
+            if getattr(self, '_auth_cookie', ''):
+                self.send_header('Set-Cookie', self._auth_cookie)
             self._apply_cors_headers()
             self._apply_security_headers()
             self.end_headers()
@@ -2357,6 +2536,9 @@ class StorageHandler(BaseHTTPRequestHandler):
             return
 
     def _serve_static(self, path):
+        if path.startswith(('/data/', '/.')) or path.endswith(('.py', '.sqlite', '.sqlite-wal', '.sqlite-shm')):
+            self._send_json({'error': 'Forbidden'}, status=403)
+            return
         if path in ('', '/'):
             path = '/app.html'
         if path.startswith('/'):

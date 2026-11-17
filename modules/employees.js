@@ -90,8 +90,20 @@
     return !!auth.canManageEmployees();
   }
 
-  function canEditEmployeeProfile(employeeId) {
+  function canManageEmployeeActivities() {
+    var auth = getAuthManager();
+    if (!auth || typeof auth.canManageEmployeeActivities !== 'function') return canManageEmployees();
+    return !!auth.canManageEmployeeActivities();
+  }
+
+  function canEditPrivateEmployeeProfile(employeeId) {
     if (canManageEmployees()) return true;
+    var user = getCurrentUser();
+    return !!(user && String(user.id || '') === String(employeeId || ''));
+  }
+
+  function canEditEmployeeProfile(employeeId) {
+    if (canManageEmployeeActivities()) return true;
     var auth = getAuthManager();
     if (!auth || typeof auth.getMode !== 'function') return false;
     if (auth.getMode() !== 'employee') return false;
@@ -244,7 +256,7 @@
 
   function renderEmployeeAvatar(emp) {
     var avatarUrl = getEmployeeGitHubAvatarUrl(emp) || getDefaultEmployeeAvatarDataUrl(emp);
-    var isUploadable = canEditEmployeeProfile(emp.id);
+    var isUploadable = canEditPrivateEmployeeProfile(emp.id);
     var hasCustomAvatar = !!(emp.customAvatarBase64 && String(emp.customAvatarBase64).trim());
     var hasGitHubAvatar = !!(emp.github && (emp.github.username || emp.github.profileUrl));
     var actionTitle = isUploadable ? (hasCustomAvatar ? 'Bild ändern oder zu GitHub zurücksetzen' : 'Profilbild hochladen') : (hasGitHubAvatar ? 'GitHub-Profil' : emp.role);
@@ -821,6 +833,30 @@
       '</details>';
   }
 
+  function syncPermissionEditorForAccessLevel(accessLevel, root) {
+    if (!root) return;
+    var managementPages = ['dashboard', 'projects', 'meeting', 'tasks', 'kanban', 'calendar', 'analytics', 'employees'];
+    var isRestricted = accessLevel === 'admin' || accessLevel === 'management';
+    var permissionPanel = root.querySelector('.employee-permission-panel');
+    if (permissionPanel) permissionPanel.open = accessLevel === 'employee';
+
+    var inputs = root.querySelectorAll('input[data-field="page-permission"]');
+    inputs.forEach(function(input) {
+      if (accessLevel === 'management') {
+        input.checked = managementPages.indexOf(input.getAttribute('data-page')) !== -1;
+      }
+      input.disabled = isRestricted;
+    });
+
+    var selectedPages = Array.prototype.slice.call(inputs).filter(function(input) { return input.checked; }).map(function(input) {
+      return input.getAttribute('data-page') || '';
+    }).filter(Boolean);
+    var summary = root.querySelector('.employee-permission-summary-text');
+    var badge = root.querySelector('.employee-permission-summary-badge');
+    if (summary) summary.textContent = buildPermissionSummary(selectedPages);
+    if (badge) badge.textContent = String(selectedPages.length);
+  }
+
   function buildAuthStatusPill(label, tone) {
     return '<span class="employee-auth-pill employee-auth-pill-' + escapeHtml(tone || 'neutral') + '">' + escapeHtml(label) + '</span>';
   }
@@ -1235,7 +1271,7 @@
     }
 
     var max = 4;
-    var canReassign = canManageEmployees();
+    var canReassign = canManageEmployeeActivities();
     var visible = vm.activeTasks.slice(0, max);
     var html = visible.map(function(task) {
       var taskId = task.id ? String(task.id) : '';
@@ -1274,15 +1310,18 @@
       var emp = vm.employee;
       var access = getEmployeeAccess(emp);
       var canEditProfile = canEditEmployeeProfile(emp.id);
+      var canEditPrivateProfile = canEditPrivateEmployeeProfile(emp.id);
       var canManageAccess = canManageEmployeeAccessFields();
       var canDeleteEmployee = canManageEmployees();
       var profileDisabledAttr = canEditProfile ? '' : ' disabled';
+      var privateProfileDisabledAttr = canEditPrivateProfile ? '' : ' disabled';
       var adminDisabledAttr = canManageAccess ? '' : ' disabled';
+      var activityDisabledAttr = canManageEmployeeActivities() ? '' : ' disabled';
       var loadBand = loadBandConfig[vm.metrics.loadBand] || loadBandConfig.balanced;
       var utilizationWidth = Math.min(160, vm.metrics.utilization);
       var isOnline = !!(window.AuthManager && typeof window.AuthManager.isEmployeeDashboardOnline === 'function' && window.AuthManager.isEmployeeDashboardOnline(emp));
       var authPills = '' +
-        buildAuthStatusPill(access.accessLevel === 'admin' ? 'Administrator' : 'Mitarbeiter', access.accessLevel === 'admin' ? 'accent' : 'neutral') +
+        buildAuthStatusPill(access.accessLevel === 'admin' ? 'Administrator' : (access.accessLevel === 'management' ? 'Management' : 'Mitarbeiter'), access.accessLevel === 'admin' || access.accessLevel === 'management' ? 'accent' : 'neutral') +
         buildAuthStatusPill(access.login.enabled ? 'Login aktiv' : 'Ohne Login', access.login.enabled ? 'success' : 'muted');
 
       return '<article class="employee-card employee-card-frame employee-work-card">' +
@@ -1317,11 +1356,11 @@
         '</label>' +
 
         '<label class="employee-form-field">GitHub Profil' +
-          '<input type="text" data-field="github-profile" data-emp-id="' + escapeHtml(emp.id) + '" value="' + escapeHtml(emp.github && emp.github.profileUrl ? emp.github.profileUrl : '') + '" placeholder="https://github.com/username oder @username"' + profileDisabledAttr + '>' +
+          '<input type="text" data-field="github-profile" data-emp-id="' + escapeHtml(emp.id) + '" value="' + escapeHtml(emp.github && emp.github.profileUrl ? emp.github.profileUrl : '') + '" placeholder="https://github.com/username oder @username"' + privateProfileDisabledAttr + '>' +
         '</label>' +
 
         '<label class="employee-form-field">GitHub Aliase (optional, Komma getrennt)' +
-          '<input type="text" data-field="github-aliases" data-emp-id="' + escapeHtml(emp.id) + '" value="' + escapeHtml(emp.github && emp.github.aliases ? emp.github.aliases.filter(function(alias) { return String(alias || '').trim().toLowerCase() !== String(emp.name || '').trim().toLowerCase() && String(alias || '').trim().toLowerCase() !== String((emp.github && emp.github.username) || '').trim().toLowerCase(); }).join(', ') : '') + '" placeholder="commit alias, bot-name, alter username"' + profileDisabledAttr + '>' +
+          '<input type="text" data-field="github-aliases" data-emp-id="' + escapeHtml(emp.id) + '" value="' + escapeHtml(emp.github && emp.github.aliases ? emp.github.aliases.filter(function(alias) { return String(alias || '').trim().toLowerCase() !== String(emp.name || '').trim().toLowerCase() && String(alias || '').trim().toLowerCase() !== String((emp.github && emp.github.username) || '').trim().toLowerCase(); }).join(', ') : '') + '" placeholder="commit alias, bot-name, alter username"' + privateProfileDisabledAttr + '>' +
         '</label>' +
 
         '<div class="employee-auth-card">' +
@@ -1337,6 +1376,7 @@
             '<span class="employee-form-label">Zugriffsebene</span>' +
             '<select data-field="access-level" data-emp-id="' + escapeHtml(emp.id) + '" class="employee-inline-select"' + adminDisabledAttr + '>' +
               '<option value="employee"' + (access.accessLevel === 'employee' ? ' selected' : '') + '>Mitarbeiter</option>' +
+              '<option value="management"' + (access.accessLevel === 'management' ? ' selected' : '') + '>Management</option>' +
               '<option value="admin"' + (access.accessLevel === 'admin' ? ' selected' : '') + '>Administrator</option>' +
             '</select>' +
           '</label>' +
@@ -1346,15 +1386,15 @@
           '</label>' +
           '<label class="employee-form-field">' +
             '<span class="employee-form-label">Login-Name</span>' +
-            '<input type="text" data-field="login-username" data-emp-id="' + escapeHtml(emp.id) + '" value="' + escapeHtml(access.login.username || '') + '" placeholder="max.mustermann"' + profileDisabledAttr + '>' +
+            '<input type="text" data-field="login-username" data-emp-id="' + escapeHtml(emp.id) + '" value="' + escapeHtml(access.login.username || '') + '" placeholder="max.mustermann"' + privateProfileDisabledAttr + '>' +
           '</label>' +
           '<label class="employee-form-field">' +
             '<span class="employee-form-label">Passwort</span>' +
             '<span class="employee-form-hint">' + escapeHtml(access.login.passwordHash ? 'Leer lassen, um das bestehende Passwort beizubehalten.' : 'Passwort fuer den Mitarbeiter-Login setzen.') + '</span>' +
-            '<input type="password" data-field="login-password" data-emp-id="' + escapeHtml(emp.id) + '" value="" placeholder="' + escapeHtml(access.login.passwordHash ? 'Neues Passwort setzen' : 'Passwort setzen') + '" autocomplete="new-password"' + profileDisabledAttr + '>' +
+            '<input type="password" data-field="login-password" data-emp-id="' + escapeHtml(emp.id) + '" value="" placeholder="' + escapeHtml(access.login.passwordHash ? 'Neues Passwort setzen' : 'Passwort setzen') + '" autocomplete="new-password"' + privateProfileDisabledAttr + '>' +
           '</label>' +
           '</div>' +
-          '<div class="employee-permission-editor">' + buildPermissionEditorHtml(emp.id, access.permissions.pages || [], access.accessLevel === 'admin' || !canManageAccess, false) + '</div>' +
+          '<div class="employee-permission-editor">' + buildPermissionEditorHtml(emp.id, access.permissions.pages || [], access.accessLevel !== 'employee' || !canManageAccess, false) + '</div>' +
         '</div>' +
 
         '<label class="employee-form-field">Kapazitaet (Story-Points)' +
@@ -1370,7 +1410,7 @@
             '<option value="Belastet"' + (emp.availability === 'Belastet' ? ' selected' : '') + '>Belastet</option>' +
             '<option value="Urlaub"' + (emp.availability === 'Urlaub' ? ' selected' : '') + '>Urlaub</option>' +
           '</select>' +
-          '<button type="button" class="btn btn-secondary employee-task-btn" data-action="assign-task" data-emp-id="' + escapeHtml(emp.id) + '"' + adminDisabledAttr + '>+ Task</button>' +
+          '<button type="button" class="btn btn-secondary employee-task-btn" data-action="assign-task" data-emp-id="' + escapeHtml(emp.id) + '"' + activityDisabledAttr + '>+ Task</button>' +
           '<button type="button" class="btn btn-primary employee-save-btn" data-action="save-profile" data-emp-id="' + escapeHtml(emp.id) + '"' + profileDisabledAttr + '>Speichern</button>' +
           (canDeleteEmployee ? '<button type="button" class="btn btn-danger employee-remove-btn" data-action="remove-employee" data-emp-id="' + escapeHtml(emp.id) + '">Entfernen</button>' : '') +
         '</div>' +
@@ -1642,8 +1682,8 @@
 
   function assignTaskToEmployee(taskId, employeeId) {
     if (!taskId || !employeeId) return false;
-    if (!canManageEmployees()) {
-      alert('Nur Administratoren koennen Aufgaben im Mitarbeiterbereich umverteilen.');
+    if (!canManageEmployeeActivities()) {
+      alert('Nur Management und Administratoren koennen Aufgaben im Mitarbeiterbereich umverteilen.');
       return false;
     }
 
@@ -1777,6 +1817,7 @@
         '<label style="font-size:13px;font-weight:500;color:var(--text-secondary);">Zugriffsebene<br>' +
           '<select id="emp_access_level" style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid var(--border-color);background:var(--bg-secondary);color:var(--text-primary);font-size:14px;">' +
             '<option value="employee" selected>Mitarbeiter</option>' +
+            '<option value="management">Management</option>' +
             '<option value="admin">Administrator</option>' +
           '</select></label>' +
         '<label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--text-secondary);">' +
@@ -1871,11 +1912,17 @@
       },
       ['Hinzufuegen']
     );
+    var accessLevelSelect = document.getElementById('emp_access_level');
+    if (accessLevelSelect) {
+      accessLevelSelect.addEventListener('change', function() {
+        syncPermissionEditorForAccessLevel(accessLevelSelect.value, document.getElementById('modal-overlay'));
+      });
+    }
   }
 
   function showAssignTaskModal(employeeId, employeeName, employeeRole) {
-    if (!canManageEmployees()) {
-      alert('Nur Administratoren koennen Aufgaben zuweisen.');
+    if (!canManageEmployeeActivities()) {
+      alert('Nur Management und Administratoren koennen Aufgaben zuweisen.');
       return;
     }
 
@@ -1922,7 +1969,10 @@
   }
 
   function showGitHubTokenModal(employeeId) {
-    if (!ensureCanEditEmployeeProfile(employeeId)) return;
+    if (!canEditPrivateEmployeeProfile(employeeId)) {
+      alert('GitHub-Zugangsdaten duerfen nur im eigenen Profil bearbeitet werden.');
+      return;
+    }
 
     var employee = getEmployees().find(function(item) { return item.id === employeeId; });
     if (!employee) {
@@ -2154,17 +2204,12 @@
       if (target.dataset.field === 'access-level') {
         var panel = target.closest('.employee-auth-card');
         if (!panel) return;
-        var isAdmin = target.value === 'admin';
-        var permissionPanel = panel.querySelector('.employee-permission-panel');
-        if (permissionPanel) permissionPanel.open = !isAdmin;
-        panel.querySelectorAll('input[data-field="page-permission"]').forEach(function(input) {
-          input.disabled = isAdmin;
-        });
+        syncPermissionEditorForAccessLevel(target.value, panel);
       }
     });
 
     page.addEventListener('dragstart', function(event) {
-      if (!canManageEmployees()) return;
+      if (!canManageEmployeeActivities()) return;
       var taskItem = event.target.closest('.employee-task-item[data-task-id]');
       if (!taskItem) return;
 
@@ -2185,7 +2230,7 @@
     });
 
     page.addEventListener('dragover', function(event) {
-      if (!canManageEmployees()) return;
+      if (!canManageEmployeeActivities()) return;
       var dropList = event.target.closest('.employee-task-list[data-drop-emp-id]');
       if (!dropList || !DND_STATE.taskId) return;
       event.preventDefault();
@@ -2203,7 +2248,7 @@
     });
 
     page.addEventListener('drop', function(event) {
-      if (!canManageEmployees()) return;
+      if (!canManageEmployeeActivities()) return;
       var dropList = event.target.closest('.employee-task-list[data-drop-emp-id]');
       if (!dropList || !DND_STATE.taskId) return;
       event.preventDefault();

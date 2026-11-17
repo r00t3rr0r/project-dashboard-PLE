@@ -57,7 +57,7 @@ Empfohlene Struktur fuer den produktiven Betrieb:
 1. Zentraler Storage-Server (Single Source of Truth)
 2. Reverse Proxy mit TLS (z. B. Nginx/Caddy)
 3. Feste Trusted Origins ueber `PROJECT_DASHBOARD_TRUSTED_ORIGINS`
-4. Geschuetzter API-Zugriff per Admin-PIN Header
+4. Geschuetzter API-Zugriff per Mitarbeiterlogin und HttpOnly-Sitzungscookie
 5. Clients mit periodischem Remote-Sync (automatisches Nachladen)
 
 Damit koennen mehrere Mitarbeiter parallel arbeiten: jede Aenderung wird zentral in `data/projekt-dashboard.sqlite` gespeichert und andere Clients laden Aenderungen automatisch nach. Der Server bestaetigt KV-Schreibvorgaenge erst nach einem voll synchronisierten SQLite-Commit, WAL-Checkpoint und atomar aktualisierten SQLite-/JSON-Backups.
@@ -80,7 +80,6 @@ sudo chown -R www-data:www-data /opt/projekt-dashboard
 sudo tee /etc/projekt-dashboard.env >/dev/null <<'EOF'
 PROJECT_DASHBOARD_STORAGE_HOST=127.0.0.1
 PROJECT_DASHBOARD_STORAGE_PORT=8766
-PROJECT_DASHBOARD_ADMIN_PIN=1337
 PROJECT_DASHBOARD_TRUSTED_ORIGINS=https://dashboard.example.com
 EOF
 ```
@@ -162,11 +161,10 @@ Health-Check:
 curl -sS http://127.0.0.1:8766/api/health
 ```
 
-Gesicherter KV-Endpunkt (ohne PIN -> 401, mit PIN -> 200):
+Gesicherter KV-Endpunkt (ohne angemeldete Sitzung -> 401):
 
 ```bash
 curl -i http://127.0.0.1:8766/api/kv
-curl -i -H 'X-Admin-Pin: 1337' http://127.0.0.1:8766/api/kv
 ```
 
 ### 6) Update-Routine
@@ -179,16 +177,18 @@ sudo systemctl status projekt-dashboard
 
 ### Sicherheits-Gate beim Oeffnen
 
-Beim Laden der App wird jetzt immer ein Admin-PIN abgefragt. Ohne gueltige PIN werden keine Inhalte angezeigt und API-Aufrufe auf geschuetzte Endpunkte blockiert.
+Ohne gueltige Sitzung erscheint ausschliesslich das Loginformular. Mitarbeiter werden aus einem Dropdown ausgewaehlt und melden sich mit ihrem Passwort an. Dashboard und geschuetzte API-Endpunkte bleiben bis dahin gesperrt.
 
-- Default-PIN: `1337`
-- Konfiguration per Umgebungsvariable: `PROJECT_DASHBOARD_ADMIN_PIN`
-- Validierung ueber API-Endpunkt: `/api/auth/validate`
+- `GET /api/auth/users` liefert ausschliesslich Namen und Benutzernamen freigeschalteter Konten fuer das Dropdown.
+- `POST /api/auth/login` prueft Benutzername und Passwort auf dem Server und setzt ein HttpOnly-Cookie.
+- Ohne "Angemeldet bleiben" gilt das Cookie fuer die Browsersitzung, maximal acht Stunden.
+- Mit "Angemeldet bleiben" bleibt die Sitzung bis zu 30 Tage gespeichert, auch nach Browser- und Serverneustart.
+- `GET /api/auth/session` prueft eine bestehende Sitzung; `POST /api/auth/logout` widerruft sie.
+- Passwortwechsel und deaktivierte Logins machen bestehende Sitzungen ungueltig. Die Admin-PIN entfaellt.
 
-Beispiel Start mit expliziter PIN und Origins:
+Beispiel Start mit expliziten Origins:
 
 ```bash
-PROJECT_DASHBOARD_ADMIN_PIN=1337 \
 PROJECT_DASHBOARD_TRUSTED_ORIGINS="https://dashboard.example.com,http://127.0.0.1:8766" \
 PROJECT_DASHBOARD_STORAGE_HOST=0.0.0.0 \
 PROJECT_DASHBOARD_STORAGE_PORT=8766 \
@@ -200,7 +200,7 @@ python3 storage_server.py
 1. Nur den Reverse Proxy ins Internet exponieren (Port 443).
 2. Storage-Server intern binden oder per Firewall auf Proxy-Host beschraenken.
 3. `PROJECT_DASHBOARD_TRUSTED_ORIGINS` nur auf echte Frontend-Domains setzen.
-4. PIN regelmaessig wechseln (`PROJECT_DASHBOARD_ADMIN_PIN`).
+4. Individuelle Mitarbeiterkonten mit sicheren Passwoertern verwenden und ausgeschiedene Konten deaktivieren.
 5. Backups in `data/` pruefen und zusaetzlich extern sichern.
 
 Beim Start werden automatisch vorbereitet:
@@ -209,6 +209,8 @@ Beim Start werden automatisch vorbereitet:
 - bei jeder KV-Aenderung atomar aktualisierte Backups (`data/projekt-dashboard.backup.sqlite` + `data/projekt-dashboard.backup.json`)
 - automatische Wiederherstellung aus Backup, falls die KV-DB leer ist
 - keine serverseitige KI; Ollama wird ausschliesslich im Browser ueber die Loopback-Adresse des Besuchers angesprochen
+
+Aufgaben-Dateianhaenge werden separat unter `data/task-attachments/` gespeichert. Dieses Verzeichnis muss zusammen mit der Datenbank extern gesichert und bei einer Migration wiederhergestellt werden; SQLite-/JSON-Backups und der JSON-Export enthalten nur die Verweise auf diese Dateien. Bereits eingebettete Alt-Anhaenge bleiben im JSON enthalten. Die mitgelieferte Nginx-Konfiguration erlaubt fuer den Upload-Endpunkt unbegrenzte Anfragegroessen; andere Proxys muessen entsprechend konfiguriert werden. Verfuegbarer Speicherplatz und Infrastruktur setzen weiterhin praktische Grenzen.
 
 ### Alternative: separater Static-Server
 

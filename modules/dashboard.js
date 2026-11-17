@@ -163,52 +163,21 @@
     return ratio;
   }
 
-  function getProjectContactEmployee(project) {
+  function getProjectProgressEmployee(tasks) {
     var employees = (window.DataLayer && typeof window.DataLayer.getEmployees === 'function' ? window.DataLayer.getEmployees() : []) || [];
     var employeesById = {};
     employees.forEach(function(employee) {
       if (employee && employee.id) employeesById[String(employee.id)] = employee;
     });
 
-    var tasks = (window.DataLayer && typeof window.DataLayer.getTasks === 'function' ? window.DataLayer.getTasks() : []).filter(function(task) {
-      return task && task.projectId === project.id;
-    });
-
-    var contactId = project && (project.contactEmployeeId || project.contactId || '');
-    if (contactId && employeesById[String(contactId)]) {
-      return employeesById[String(contactId)];
-    }
-
-    var teamMembers = Array.isArray(project && project.teamMembers) ? project.teamMembers : [];
-    for (var i = 0; i < teamMembers.length; i++) {
-      var member = teamMembers[i];
-      var memberId = member && (member.employeeId || member.id);
-      if (memberId && employeesById[String(memberId)]) {
-        return employeesById[String(memberId)];
-      }
-    }
-
-    var activeTasks = tasks.filter(function(task) {
-      return String(task.status || '').toLowerCase() === 'in-progress';
+    var activeTasks = (tasks || []).filter(function(task) {
+      return task && normalizeTaskStatus(task) === 'in-progress';
     }).sort(function(a, b) {
       return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
     });
 
-    if (activeTasks.length) {
-      var activeAssigneeId = activeTasks[0].assigneeId || activeTasks[0].employeeId;
-      if (activeAssigneeId && employeesById[String(activeAssigneeId)]) {
-        return employeesById[String(activeAssigneeId)];
-      }
-    }
-
-    var nextTask = tasks.filter(function(task) {
-      return String(task.status || '').toLowerCase() !== 'done';
-    }).sort(function(a, b) {
-      return (new Date(a.dueDate || a.createdAt || 0).getTime() || 0) - (new Date(b.dueDate || b.createdAt || 0).getTime() || 0);
-    })[0];
-
-    if (nextTask) {
-      var assigneeId = nextTask.assigneeId || nextTask.employeeId;
+    for (var i = 0; i < activeTasks.length; i++) {
+      var assigneeId = activeTasks[i].assigneeId || activeTasks[i].employeeId;
       if (assigneeId && employeesById[String(assigneeId)]) {
         return employeesById[String(assigneeId)];
       }
@@ -236,11 +205,9 @@
     return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
   }
 
-  function renderProjectContactAvatar(project) {
-    var employee = getProjectContactEmployee(project);
-    if (!employee) {
-      return '<span class="project-progress-contact-avatar project-progress-contact-avatar-fallback" title="Kein Ansprechpartner">N</span>';
-    }
+  function renderProjectProgressAvatar(tasks) {
+    var employee = getProjectProgressEmployee(tasks);
+    if (!employee) return '';
 
     var name = String(employee.name || 'Mitarbeiter').trim() || 'Mitarbeiter';
     var avatarUrl = getEmployeeAvatarUrl(employee) || getDefaultEmployeeAvatarDataUrl(employee);
@@ -1060,7 +1027,9 @@
 
       return { project: project, tasks: relevantTasks };
     }).filter(function(entry) {
-      return entry.tasks.length > 0;
+      return entry.tasks.some(function(task) {
+        return normalizeTaskStatus(task) === 'in-progress' && Boolean(task.assigneeId || task.employeeId);
+      });
     });
 
     if (projectEntries.length === 0) {
@@ -1086,7 +1055,7 @@
       html += '<div class="project-progress-head">';
       html += '<div class="project-progress-head-main">';
       html += '<span class="project-progress-title">' + escapeHtml(project.title || project.name) + '</span>';
-      html += renderProjectContactAvatar(project);
+      html += renderProjectProgressAvatar(tasks);
       html += '</div>';
       html += '<span class="project-progress-percent">' + percent + '%</span>';
       html += '</div>';

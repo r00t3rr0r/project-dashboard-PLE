@@ -66,12 +66,15 @@
   };
   var GUEST_PAGES = ['dashboard', 'calendar', 'kanban'];
   var EMPLOYEE_DEFAULT_PAGES = ['dashboard', 'projects', 'tasks', 'kanban', 'calendar', 'quicktask', 'employees'];
+  var MANAGEMENT_PAGES = ['dashboard', 'projects', 'meeting', 'tasks', 'kanban', 'calendar', 'analytics', 'employees'];
   var PASSWORD_SCHEME = 'pbkdf2';
   var PASSWORD_PBKDF2_ITERATIONS = 180000;
   var PASSWORD_PBKDF2_BYTES = 32;
   var SESSION_VERSION = 2;
   var SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
   var SESSION_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
+  var SESSION_REMEMBER_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+  var serverSessionVerified = false;
   var SESSION_TOUCH_INTERVAL_MS = 30 * 1000;
   var AUTH_REFRESH_INTERVAL_MS = 15000;
   var DASHBOARD_PRESENCE_TOUCH_INTERVAL_MS = 45000;
@@ -126,11 +129,12 @@
     return String(Date.now()) + '-' + Math.random().toString(16).slice(2);
   }
 
-  function buildSessionForEmployee(employee) {
+  function buildSessionForEmployee(employee, remember) {
     var nowIso = new Date().toISOString();
     var hash = employee && employee.auth && employee.auth.login ? employee.auth.login.passwordHash : '';
     return {
       version: SESSION_VERSION,
+      remember: !!remember,
       sessionId: createSessionId(),
       employeeId: employee && employee.id ? String(employee.id) : '',
       uaTag: getUserAgentTag(),
@@ -145,8 +149,8 @@
     var issuedAt = Date.parse(String(session && session.issuedAt || ''));
     var lastSeenAt = Date.parse(String(session && session.lastSeenAt || ''));
     if (isNaN(issuedAt) || isNaN(lastSeenAt)) return true;
-    if ((now - issuedAt) > SESSION_MAX_AGE_MS) return true;
-    if ((now - lastSeenAt) > SESSION_IDLE_TIMEOUT_MS) return true;
+    if ((now - issuedAt) > (session.remember ? SESSION_REMEMBER_AGE_MS : SESSION_MAX_AGE_MS)) return true;
+    if (!session.remember && (now - lastSeenAt) > SESSION_IDLE_TIMEOUT_MS) return true;
     return false;
   }
 
@@ -206,6 +210,7 @@
 
       return {
         version: Number(parsed.version || 0),
+        remember: !!parsed.remember,
         sessionId: String(parsed.sessionId || ''),
         employeeId: String(parsed.employeeId || ''),
         uaTag: String(parsed.uaTag || ''),
@@ -227,6 +232,7 @@
       }
       var sessionData = {
         version: Number(data.version || SESSION_VERSION),
+        remember: !!data.remember,
         sessionId: String(data.sessionId || ''),
         employeeId: String(data.employeeId || ''),
         uaTag: String(data.uaTag || ''),
@@ -237,7 +243,8 @@
 
       var serialized = JSON.stringify(sessionData);
       window.sessionStorage.setItem(SESSION_KEY, serialized);
-      window.localStorage.setItem(SESSION_PERSIST_KEY, serialized);
+      if (sessionData.remember) window.localStorage.setItem(SESSION_PERSIST_KEY, serialized);
+      else window.localStorage.removeItem(SESSION_PERSIST_KEY);
     } catch (_err) {}
   }
 
@@ -291,12 +298,14 @@
     var auth = copy.auth && typeof copy.auth === 'object' ? copy.auth : {};
     var login = auth.login && typeof auth.login === 'object' ? auth.login : {};
     var permissions = auth.permissions && typeof auth.permissions === 'object' ? auth.permissions : {};
-    var accessLevel = auth.accessLevel === 'admin' ? 'admin' : 'employee';
+    var accessLevel = auth.accessLevel === 'admin' || auth.accessLevel === 'management' ? auth.accessLevel : 'employee';
     var username = normalizeUsername(login.username, copy.name || 'mitarbeiter');
     var passwordHash = typeof login.passwordHash === 'string' ? login.passwordHash.trim() : '';
     var pages = accessLevel === 'admin'
       ? ALL_PAGES.slice()
-      : normalizePageList(permissions.pages && permissions.pages.length ? permissions.pages : EMPLOYEE_DEFAULT_PAGES);
+      : accessLevel === 'management'
+        ? MANAGEMENT_PAGES.slice()
+        : normalizePageList(permissions.pages && permissions.pages.length ? permissions.pages : EMPLOYEE_DEFAULT_PAGES);
     if (accessLevel !== 'admin' && pages.indexOf('employees') === -1) pages.push('employees');
 
     copy.auth = {
@@ -371,6 +380,7 @@
   }
 
   function getCurrentUser() {
+    if (!serverSessionVerified) return null;
     if (isSetupMode()) return null;
 
     var session = readSession();
@@ -413,6 +423,8 @@
   function getMode() {
     if (isSetupMode()) return 'setup';
     if (isAdmin()) return 'admin';
+    var user = getCurrentUser();
+    if (user && user.auth && user.auth.accessLevel === 'management') return 'management';
     if (getCurrentUser()) return 'employee';
     return 'guest';
   }
@@ -420,6 +432,7 @@
   function getVisiblePages() {
     var mode = getMode();
     if (mode === 'setup' || mode === 'admin') return ALL_PAGES.slice();
+    if (mode === 'management') return MANAGEMENT_PAGES.slice();
     if (mode === 'employee') {
       var user = getCurrentUser();
       var pages = user && user.auth && user.auth.permissions ? user.auth.permissions.pages : [];
@@ -442,6 +455,11 @@
   function canManageEmployees() {
     var mode = getMode();
     return mode === 'setup' || mode === 'admin';
+  }
+
+  function canManageEmployeeActivities() {
+    var mode = getMode();
+    return mode === 'setup' || mode === 'admin' || mode === 'management';
   }
 
   function canEditOwnEmployee(employee) {
@@ -548,6 +566,61 @@
     return normalizeEmployeeAccess(next);
   }
 
+  function sanitizeManagedEmployeeUpdate(employee) {
+    var employeeId = employee && employee.id ? String(employee.id) : '';
+    if (!employeeId) throw new Error('Mitarbeiter-ID fehlt.');
+
+    var current = getEmployees().find(function (item) {
+      return String(item.id) === employeeId;
+    });
+    if (!current) throw new Error('Mitarbeiter nicht gefunden.');
+
+    var incoming = employee && typeof employee === 'object' ? clone(employee) : {};
+    var next = clone(current);
+    var user = getCurrentUser();
+    var isOwnProfile = !!(user && String(user.id || '') === employeeId);
+    if (Object.prototype.hasOwnProperty.call(incoming, 'currentActivity')) {
+      next.currentActivity = String(incoming.currentActivity || '').trim();
+    }
+    if (Object.prototype.hasOwnProperty.call(incoming, 'focusAreas')) {
+      next.focusAreas = unique((Array.isArray(incoming.focusAreas) ? incoming.focusAreas : []).map(function (item) {
+        return String(item || '').trim();
+      }).filter(Boolean));
+    }
+    if (Object.prototype.hasOwnProperty.call(incoming, 'availability')) {
+      var availability = String(incoming.availability || '').trim();
+      if (['Verf\u00fcgbar', 'Belastet', 'Urlaub'].indexOf(availability) !== -1) next.availability = availability;
+    }
+    if (Object.prototype.hasOwnProperty.call(incoming, 'capacityPoints')) {
+      var capacity = Number(incoming.capacityPoints);
+      if (isFinite(capacity)) next.capacityPoints = Math.max(2, Math.min(20, Math.round(capacity)));
+    }
+    if (isOwnProfile && Object.prototype.hasOwnProperty.call(incoming, 'workplace')) {
+      var workplace = String(incoming.workplace || '').trim();
+      if (WORKPLACE_OPTIONS.some(function (option) { return option.value === workplace; })) next.workplace = workplace;
+    }
+    if (isOwnProfile && incoming.github && typeof incoming.github === 'object') {
+      next.github = Object.assign({}, next.github || {});
+      ['username', 'profileUrl', 'aliases', 'privateAccessToken'].forEach(function (key) {
+        if (Object.prototype.hasOwnProperty.call(incoming.github, key)) next.github[key] = incoming.github[key];
+      });
+    }
+    if (isOwnProfile && incoming.auth && incoming.auth.login && typeof incoming.auth.login === 'object') {
+      next.auth.login = next.auth.login && typeof next.auth.login === 'object' ? next.auth.login : {};
+      if (Object.prototype.hasOwnProperty.call(incoming.auth.login, 'username')) {
+        next.auth.login.username = normalizeUsername(incoming.auth.login.username, current.name || 'mitarbeiter');
+      }
+      var passwordHash = String(incoming.auth.login.passwordHash || '').trim();
+      if (passwordHash) next.auth.login.passwordHash = passwordHash;
+    }
+    if (isOwnProfile && Object.prototype.hasOwnProperty.call(incoming, 'customAvatarBase64')) {
+      next.customAvatarBase64 = String(incoming.customAvatarBase64 || '').trim();
+    }
+
+    next.updatedAt = new Date().toISOString();
+    return normalizeEmployeeAccess(next);
+  }
+
   function getProjectById(projectId) {
     if (!window.DataLayer || typeof window.DataLayer.getProjectById !== 'function') return null;
     return window.DataLayer.getProjectById(projectId);
@@ -574,7 +647,7 @@
 
   function canViewProject(project) {
     var mode = getMode();
-    if (mode === 'setup' || mode === 'admin') return true;
+    if (mode === 'setup' || mode === 'admin' || mode === 'management') return true;
     if (!project) return false;
     if (mode === 'guest') return false;
     if (mode === 'employee') return true;
@@ -583,7 +656,7 @@
 
   function canEditProject(project) {
     var mode = getMode();
-    if (mode === 'setup' || mode === 'admin') return true;
+    if (mode === 'setup' || mode === 'admin' || mode === 'management') return true;
     return canViewProject(project);
   }
 
@@ -591,6 +664,11 @@
     var mode = getMode();
     if (mode === 'setup' || mode === 'admin') return true;
     return mode === 'employee' && canAccessPage('projects');
+  }
+
+  function canDeleteProject() {
+    var mode = getMode();
+    return mode === 'setup' || mode === 'admin';
   }
 
   function ensureProjectMembership(project, user) {
@@ -619,17 +697,19 @@
 
   function canCreateTask() {
     var mode = getMode();
-    if (mode === 'setup' || mode === 'admin') return true;
+    if (mode === 'setup' || mode === 'admin' || mode === 'management') return true;
     return mode === 'employee' && (canAccessPage('kanban') || canAccessPage('quicktask'));
   }
 
   function canEditTask(task) {
     var mode = getMode();
-    if (mode === 'setup' || mode === 'admin') return true;
+    if (mode === 'setup' || mode === 'admin' || mode === 'management') return true;
     if (mode !== 'employee' || !task) return false;
     var user = getCurrentUser();
     if (!user) return false;
-    if (String(task.assigneeId || '') === String(user.id)) return true;
+    var assignedToUser = String(task.assigneeId || '') === String(user.id) ||
+      (Array.isArray(task.assigneeIds) && task.assigneeIds.some(function (id) { return String(id || '') === String(user.id); }));
+    if (assignedToUser) return true;
     if (task.projectId) {
       return canViewProject(getProjectById(task.projectId));
     }
@@ -638,10 +718,13 @@
 
   function canMoveTask(task) {
     var mode = getMode();
-    if (mode === 'setup' || mode === 'admin') return true;
+    if (mode === 'setup' || mode === 'admin' || mode === 'management') return true;
     if (mode !== 'employee' || !task) return false;
     var user = getCurrentUser();
-    return !!(user && String(task.assigneeId || '') === String(user.id || ''));
+    return !!(user && (
+      String(task.assigneeId || '') === String(user.id || '') ||
+      (Array.isArray(task.assigneeIds) && task.assigneeIds.some(function (id) { return String(id || '') === String(user.id || ''); }))
+    ));
   }
 
   function prepareTaskPayload(task) {
@@ -667,13 +750,13 @@
 
   function canCreateCalendarEvent() {
     var mode = getMode();
-    if (mode === 'setup' || mode === 'admin') return true;
+    if (mode === 'setup' || mode === 'admin' || mode === 'management') return true;
     return mode === 'employee' && canAccessPage('calendar');
   }
 
   function canEditCalendarEvent(event) {
     var mode = getMode();
-    if (mode === 'setup' || mode === 'admin') return true;
+    if (mode === 'setup' || mode === 'admin' || mode === 'management') return true;
     if (mode !== 'employee' || !event) return false;
     var user = getCurrentUser();
     if (!user) return false;
@@ -699,7 +782,7 @@
   function getVisibleProjects(projects) {
     var list = Array.isArray(projects) ? projects.slice() : [];
     var mode = getMode();
-    if (mode === 'setup' || mode === 'admin') return list;
+    if (mode === 'setup' || mode === 'admin' || mode === 'management') return list;
     if (mode === 'guest') return [];
     if (mode === 'employee') return list;
     return list.filter(canViewProject);
@@ -708,7 +791,7 @@
   function getAssignableEmployees(employees) {
     var list = Array.isArray(employees) ? employees.slice() : [];
     var mode = getMode();
-    if (mode === 'setup' || mode === 'admin') return list;
+    if (mode === 'setup' || mode === 'admin' || mode === 'management') return list;
     var user = getCurrentUser();
     return user ? list.filter(function (employee) { return String(employee.id) === String(user.id); }) : [];
   }
@@ -748,6 +831,13 @@
       if (canManageEmployees()) {
         return originalMethods.updateEmployee(normalizeEmployeeAccess(employee));
       }
+      if (getMode() === 'management') {
+        try {
+          return originalMethods.updateEmployee(sanitizeManagedEmployeeUpdate(employee));
+        } catch (err) {
+          return deny(err && err.message ? err.message : 'Mitarbeiterdaten konnten nicht aktualisiert werden.');
+        }
+      }
       try {
         return originalMethods.updateEmployee(sanitizeSelfEmployeeUpdate(employee));
       } catch (err) {
@@ -771,6 +861,7 @@
     };
 
     window.DataLayer.deleteProject = function (projectId) {
+      if (!canDeleteProject()) return deny('Nur Administratoren duerfen Projekte loeschen.');
       var project = getProjectById(projectId);
       if (!canEditProject(project)) return deny('Dieses Projekt darf nicht geloescht werden.');
       return originalMethods.deleteProject(projectId);
@@ -993,12 +1084,14 @@
     var next = clone(employee.auth);
     var input = patch && typeof patch === 'object' ? patch : {};
 
-    next.accessLevel = input.accessLevel === 'admin' ? 'admin' : 'employee';
+    next.accessLevel = input.accessLevel === 'admin' || input.accessLevel === 'management' ? input.accessLevel : 'employee';
     next.login.enabled = !!input.loginEnabled;
     next.login.username = normalizeUsername(input.username, existingEmployee && existingEmployee.name || 'mitarbeiter');
 
     if (next.accessLevel === 'admin') {
       next.permissions.pages = ALL_PAGES.slice();
+    } else if (next.accessLevel === 'management') {
+      next.permissions.pages = MANAGEMENT_PAGES.slice();
     } else {
       next.permissions.pages = normalizePageList(input.pages && input.pages.length ? input.pages : EMPLOYEE_DEFAULT_PAGES);
       if (!next.permissions.pages.length) next.permissions.pages = EMPLOYEE_DEFAULT_PAGES.slice();
@@ -1019,36 +1112,53 @@
     });
   }
 
-  function login(username, password) {
+  function restoreServerSession(result) {
     return syncAuthStateFromServer().then(function () {
-      if (isSetupMode()) return { ok: false, message: 'Bitte zuerst einen Administrator im Mitarbeiterbereich anlegen.' };
+      var employee = getEmployees().find(function (item) { return String(item.id) === String(result.employeeId); });
+      if (!employee) throw new Error('Profildaten konnten nicht geladen werden.');
+      serverSessionVerified = true;
+      var existing = readSession();
+      if (existing.employeeId !== String(employee.id) || isSessionExpired(existing)) {
+        writeSession(buildSessionForEmployee(employee, result.remember));
+      }
+      authStateBootstrapped = true;
+      authDataLoaded = true;
+      return employee;
+    });
+  }
 
-      var targetUser = normalizeUsername(username, 'mitarbeiter');
-      var employee = getLoginEmployees().find(function (item) {
-        return normalizeUsername(item.auth.login.username, item.name) === targetUser;
+  function login(username, password, remember) {
+    return fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, password: password, remember: !!remember })
+    }).then(function (response) {
+      return response.json().then(function (result) {
+        if (!response.ok) throw new Error(result.error || 'Anmeldung fehlgeschlagen.');
+        writeSession(null);
+        return restoreServerSession(result);
       });
-
-      if (!employee) return { ok: false, message: 'Login nicht gefunden.' };
-
-      return verifyPasswordAgainstStoredHash(password, employee.auth.login.passwordHash).then(function (isValid) {
-        if (!isValid) {
-          return { ok: false, message: 'Passwort ist nicht korrekt.' };
-        }
-        writeSession(buildSessionForEmployee(employee));
+    }).then(function (employee) {
         dashboardPresenceLastTouchedAt = 0;
         touchDashboardPresence();
         emitAuthChanged();
         refreshUi();
         return { ok: true, user: employee };
-      });
+    }).catch(function (error) {
+      return { ok: false, message: error.message || 'Server nicht erreichbar.' };
     });
   }
 
   function logout() {
-    writeSession(null);
-    dashboardPresenceLastTouchedAt = 0;
-    emitAuthChanged();
-    refreshUi();
+    return fetch('/api/auth/logout', { method: 'POST' }).then(function (response) {
+      if (!response.ok) throw new Error('Abmelden fehlgeschlagen.');
+      serverSessionVerified = false;
+      writeSession(null);
+      dashboardPresenceLastTouchedAt = 0;
+      closeModal();
+      emitAuthChanged();
+      refreshUi();
+    }).catch(function () { window.alert('Abmelden fehlgeschlagen. Bitte erneut versuchen.'); });
   }
 
   function closeModal() {
@@ -1077,58 +1187,12 @@
     openDailyStatusDialog(getCurrentUser() || user);
   }
 
-  function openLoginModal(skipSync) {
-    if (!skipSync) {
-      syncAuthStateFromServer().then(function () {
-        openLoginModal(true);
-      });
-      return;
-    }
-
-    var overlay = document.getElementById('modal-overlay');
-    var content = document.getElementById('modal-content');
-    if (!overlay || !content) return;
-
-    var loginEmployees = getLoginEmployees();
-    if (!loginEmployees.length) {
-      window.alert('Es ist noch kein Mitarbeiter-Login eingerichtet.');
-      return;
-    }
-
-    var options = loginEmployees.map(function (employee) {
-      return '<option value="' + employee.auth.login.username + '">' + employee.name + ' (' + employee.auth.login.username + ')</option>';
-    }).join('');
-
-    content.innerHTML = ''
-      + '<h2>Login</h2>'
-      + '<div class="calendar-modal-form auth-login-form">'
-      + '<div class="form-group"><label for="auth-login-user">Mitarbeiter</label><select id="auth-login-user">' + options + '</select></div>'
-      + '<div class="form-group"><label for="auth-login-password">Passwort</label><input id="auth-login-password" type="password" autocomplete="current-password"></div>'
-      + '<div class="modal-actions">'
-      + '<button type="button" class="btn btn-secondary" id="auth-login-cancel">Abbrechen</button>'
-      + '<button type="button" class="btn btn-primary" id="auth-login-submit">Einloggen</button>'
-      + '</div>'
-      + '</div>';
-
-    overlay.classList.remove('hidden');
-
-    var submitBtn = document.getElementById('auth-login-submit');
-    var cancelBtn = document.getElementById('auth-login-cancel');
-    var passwordInput = document.getElementById('auth-login-password');
-    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
-    if (submitBtn) {
-      submitBtn.addEventListener('click', function () {
-        var userEl = document.getElementById('auth-login-user');
-        login(userEl ? userEl.value : '', passwordInput ? passwordInput.value : '').then(function (result) {
-          if (!result.ok) {
-            window.alert(result.message || 'Login fehlgeschlagen.');
-            return;
-          }
-          showDailyStatusAfterLogin(result.user);
-        });
-      });
-    }
-    if (passwordInput && passwordInput.focus) passwordInput.focus();
+  function openLoginModal() {
+    document.body.classList.add('auth-locked');
+    var gate = document.getElementById('auth-gate');
+    if (gate) gate.hidden = false;
+    var usernameInput = document.getElementById('auth-gate-username');
+    if (usernameInput) usernameInput.focus();
   }
 
   function getLocalDateKey() {
@@ -1384,7 +1448,8 @@
       return;
     }
 
-    statusEl.textContent = (isAdmin(user) ? 'Admin' : 'Mitarbeiter') + ': ' + (user && user.name ? user.name : 'Angemeldet');
+    var roleLabel = isAdmin(user) ? 'Admin' : (user && user.auth && user.auth.accessLevel === 'management' ? 'Management' : 'Mitarbeiter');
+    statusEl.textContent = roleLabel + ': ' + (user && user.name ? user.name : 'Angemeldet');
     loginBtn.hidden = true;
     logoutBtn.hidden = false;
     if (workplaceGroup) workplaceGroup.hidden = false;
@@ -1398,6 +1463,12 @@
       var allowed = visiblePages.indexOf(page) !== -1;
       var item = link.parentElement;
       if (item) item.style.display = allowed ? '' : 'none';
+    });
+    document.querySelectorAll('.nav-menu .nav-group').forEach(function (group) {
+      var hasVisiblePage = Array.prototype.some.call(group.querySelectorAll('a[data-page]'), function (link) {
+        return link.parentElement && link.parentElement.style.display !== 'none';
+      });
+      group.hidden = !hasVisiblePage;
     });
   }
 
@@ -1429,6 +1500,10 @@
   }
 
   function refreshUi() {
+    var locked = !getCurrentUser();
+    document.body.classList.toggle('auth-locked', locked);
+    var gate = document.getElementById('auth-gate');
+    if (gate) gate.hidden = !locked;
     ensureToolbar();
     updateToolbar();
     updateSidebarVisibility();
@@ -1459,6 +1534,8 @@
     setControlsDisabled(employeePage, !canUseEmployeesPage);
     if (canManageEmployees()) {
       setLockNote('employees', '');
+    } else if (mode === 'management') {
+      setLockNote('employees', 'Management kann Tätigkeitsdaten pflegen und Aufgaben koordinieren. Zugangsdaten und Rollen bleiben Administratoren vorbehalten.');
     } else if (mode === 'employee') {
       setLockNote('employees', 'Du kannst dein eigenes Profil (z. B. Passwort, GitHub-Link, Fokus) bearbeiten. Admin-Felder bleiben gesperrt.');
     } else {
@@ -1517,6 +1594,63 @@
     if (initStarted) return;
     initStarted = true;
 
+    var userSelect = document.getElementById('auth-gate-username');
+    if (userSelect) fetch('/api/auth/users', { cache: 'no-store' }).then(function (response) {
+      if (!response.ok) throw new Error('Mitarbeiterliste konnte nicht geladen werden.');
+      return response.json();
+    }).then(function (result) {
+      userSelect.replaceChildren(new Option('Mitarbeiter auswaehlen', ''));
+      result.users.forEach(function (user) {
+        userSelect.add(new Option(user.name + ' (' + user.username + ')', user.username));
+      });
+      userSelect.disabled = !result.users.length;
+      if (!result.users.length) throw new Error('Keine Mitarbeiter mit freigeschaltetem Login vorhanden.');
+    }).catch(function (error) {
+      userSelect.replaceChildren(new Option('Mitarbeiterliste nicht verfuegbar', ''));
+      var errorElement = document.getElementById('auth-gate-error');
+      errorElement.textContent = error.message;
+      errorElement.hidden = false;
+    });
+
+    window.addEventListener('authenticationRequired', function () {
+      serverSessionVerified = false;
+      writeSession(null);
+      closeModal();
+      refreshUi();
+    });
+
+    var loginForm = document.getElementById('auth-gate-form');
+    if (loginForm) loginForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+      var submit = document.getElementById('auth-gate-submit');
+      var error = document.getElementById('auth-gate-error');
+      submit.disabled = true;
+      error.hidden = true;
+      login(document.getElementById('auth-gate-username').value,
+        document.getElementById('auth-gate-password').value,
+        document.getElementById('auth-gate-remember').checked).then(function (result) {
+          if (!result.ok) {
+            error.textContent = result.message;
+            error.hidden = false;
+          } else {
+            document.getElementById('auth-gate-password').value = '';
+            showDailyStatusAfterLogin(result.user);
+          }
+        }).finally(function () { submit.disabled = false; });
+    });
+
+    fetch('/api/auth/session', { cache: 'no-store' }).then(function (response) {
+      if (!response.ok) throw new Error('Keine Sitzung');
+      return response.json();
+    }).then(restoreServerSession).then(function () {
+      refreshUi();
+      emitAuthChanged();
+    }).catch(function () {
+      serverSessionVerified = false;
+      writeSession(null);
+      refreshUi();
+    });
+
     wrapDataLayer();
     refreshUi();
     startAuthRefreshLoop();
@@ -1561,7 +1695,9 @@
     getFallbackPage: getFallbackPage,
     canAccessPage: canAccessPage,
     canManageEmployees: canManageEmployees,
+    canManageEmployeeActivities: canManageEmployeeActivities,
     canCreateProject: canCreateProject,
+    canDeleteProject: canDeleteProject,
     canViewProject: canViewProject,
     canEditProject: canEditProject,
     getVisibleProjects: getVisibleProjects,

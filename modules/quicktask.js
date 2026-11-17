@@ -414,25 +414,31 @@ function openQuickTaskModal(){
       +'</div>'
       : '';
     
-    content.innerHTML='<h2>Neue Aufgabe</h2>' +
-      '<div class="form-group"><label>Titel *</label><input type="text" id="qtm-title"></div>' +
-      aiToolsHtml +
-      '<div class="form-group"><label>Beschreibung</label><textarea id="qtm-desc" rows="3"></textarea></div>' +
+    content.innerHTML='<header class="qtm-new-header"><p class="qtm-new-eyebrow">Aufgaben</p><h2>Neue Aufgabe</h2></header>' +
+      '<div class="qtm-new-layout">' +
+      '<section class="qtm-new-section"><h3>Aufgabendaten</h3>' +
+      '<div class="form-group"><label for="qtm-title">Titel *</label><input type="text" id="qtm-title"></div>' +
+      '<div class="form-group"><label for="qtm-project">Projekt</label><select id="qtm-project">'+pOpts+'</select></div>' +
+      '<div class="form-group"><label>Mitarbeiter</label><div id="qtm-assignee-picker" class="qtm-assignee-picker"></div><small style="color:var(--text-muted)">Mehrfachauswahl: Mitarbeiter per Klick zuweisen</small></div>' +
+      '<div class="form-group"><label for="qtm-desc">Beschreibung</label><textarea id="qtm-desc" rows="6"></textarea></div>' +
+      '</section>' +
+      '<section class="qtm-new-section"><h3>Planung</h3>' +
       '<div class="task-cockpit-grid">' +
-      '  <div class="form-group"><label>Priorität *</label><select id="qtm-prio"><option value="low">Niedrig</option><option value="medium" selected>Mittel</option><option value="high">Hoch</option><option value="blocker">Blocker</option></select></div>' +
-      '  <div class="form-group"><label>Dringlichkeit</label><select id="qtm-urgency"><option value="low">Niedrig</option><option value="normal" selected>Normal</option><option value="high">Hoch</option><option value="critical">Kritisch</option></select></div>' +
-      '  <div class="form-group"><label>Aufwand (h)</label><input type="number" min="0" step="0.5" id="qtm-effort" value="0"></div>' +
+      '  <div class="form-group"><label for="qtm-prio">Priorität *</label><select id="qtm-prio"><option value="low">Niedrig</option><option value="medium" selected>Mittel</option><option value="high">Hoch</option><option value="blocker">Blocker</option></select></div>' +
+      '  <div class="form-group"><label for="qtm-urgency">Dringlichkeit</label><select id="qtm-urgency"><option value="low">Niedrig</option><option value="normal" selected>Normal</option><option value="high">Hoch</option><option value="critical">Kritisch</option></select></div>' +
+      '  <div class="form-group"><label for="qtm-effort">Aufwand (h)</label><input type="number" min="0" step="0.5" id="qtm-effort" value="0"></div>' +
       '</div>' +
-      '<div class="task-cockpit-grid">' +
-      '  <div class="form-group"><label>Projekt</label><select id="qtm-project">'+pOpts+'</select></div>' +
-      '  <div class="form-group"><label>Mitarbeiter</label><div id="qtm-assignee-picker" class="qtm-assignee-picker"></div><small style="color:var(--text-muted)">Mehrfachauswahl: Mitarbeiter per Klick zuweisen</small></div>' +
-      '</div>' +
-      '<div class="form-group"><label>Labels</label><select id="qtm-labels" multiple style="height:80px;">'+lOpts+'</select><br><small style="color:var(--text-muted)">STRG+Klick für mehrere</small></div>' +
-      '<div class="form-group"><label>Terminart</label><select id="qtm-schedule-mode"><option value="none">Kein Termin</option><option value="deadline">Deadline</option><option value="fixed">Fester Termin</option><option value="range">Zeitraum</option><option value="asap">Umgehend</option></select></div>' +
+      '  <div class="form-group"><label for="qtm-schedule-mode">Terminart</label><select id="qtm-schedule-mode"><option value="none">Kein Termin</option><option value="deadline">Deadline</option><option value="fixed">Fester Termin</option><option value="range">Zeitraum</option><option value="asap">Umgehend</option></select></div>' +
       '<div id="qtm-schedule-fields"></div>' +
-      '<div class="form-group"><label>Teilaufgaben (eine pro Zeile)</label><textarea id="qtm-subtasks" rows="3" placeholder="Konzept abstimmen&#10;Implementierung&#10;Abnahme"></textarea></div>' +
-      '<div class="form-group"><label>Hinweis / Notiz</label><textarea id="qtm-note" rows="2" placeholder="z. B. Kunde priorisiert dieses Thema"></textarea></div>' +
-      '<div class="form-group"><label>Dateien/Links (eine pro Zeile, optional Name|URL)</label><textarea id="qtm-attachments" rows="2" placeholder="Spezifikation|https://...&#10;https://..."></textarea></div>' +
+      '<div class="form-group"><label for="qtm-labels">Labels</label><select id="qtm-labels" multiple style="height:80px;">'+lOpts+'</select><br><small style="color:var(--text-muted)">STRG+Klick für mehrere</small></div>' +
+      '</section>' +
+      '<section class="qtm-new-section"><h3>Weitere Informationen</h3>' +
+      '<div class="form-group"><label for="qtm-subtasks">Teilaufgaben (eine pro Zeile)</label><textarea id="qtm-subtasks" rows="4" placeholder="Konzept abstimmen&#10;Implementierung&#10;Abnahme"></textarea></div>' +
+      '<div class="form-group"><label for="qtm-note">Hinweis / Notiz</label><textarea id="qtm-note" rows="2" placeholder="z. B. Kunde priorisiert dieses Thema"></textarea></div>' +
+      '<div class="form-group"><label>Dateien</label><button type="button" class="btn btn-secondary" id="qtm-upload"><span class="material-symbols-rounded" aria-hidden="true">attach_file</span> Dateien auswählen</button><input type="file" id="qtm-files" class="sr-only" multiple><div id="qtm-file-list" class="qtm-file-list"></div><p id="qtm-upload-status" class="text-muted" role="status" aria-live="polite"></p></div>' +
+      '<div class="form-group"><label for="qtm-attachments">Links (eine pro Zeile, optional Name|URL)</label><textarea id="qtm-attachments" rows="2" placeholder="Spezifikation|https://...&#10;https://..."></textarea></div>' +
+      aiToolsHtml +
+      '</section></div>' +
       '<div class="modal-actions">' +
       '<button class="btn btn-secondary" id="qt-cancel">Abbrechen</button>' +
       '<button class="btn btn-primary" id="qt-submit">Erstellen</button></div>';
@@ -440,6 +446,42 @@ function openQuickTaskModal(){
     var aiState={loading:false,draft:null,suggestions:[]};
     var githubDraftCommits=[];
     var selectedAssigneeIds=[];
+    var pendingFiles=[];
+
+    function renderPendingFiles(){
+      document.getElementById('qtm-file-list').innerHTML=pendingFiles.map(function(entry,index){
+        return '<div class="qtm-file-item"><span>'+escapeHtml(entry.file.name)+'</span><button type="button" class="kanban-icon-btn" data-qtm-remove-file="'+index+'" title="Datei entfernen" aria-label="Datei entfernen: '+escapeAttr(entry.file.name)+'"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>';
+      }).join('');
+    }
+
+    document.getElementById('qtm-upload').addEventListener('click',function(){document.getElementById('qtm-files').click();});
+    document.getElementById('qtm-files').addEventListener('change',function(event){
+      Array.prototype.forEach.call(event.target.files,function(file){pendingFiles.push({file:file,attachment:null});});
+      event.target.value='';
+      renderPendingFiles();
+    });
+    document.getElementById('qtm-file-list').addEventListener('click',function(event){
+      var button=event.target.closest('[data-qtm-remove-file]');
+      if(!button)return;
+      pendingFiles.splice(Number(button.getAttribute('data-qtm-remove-file')),1);
+      renderPendingFiles();
+    });
+
+    function uploadPendingFiles(){
+      return pendingFiles.reduce(function(previous,entry,index){
+        return previous.then(function(){
+          if(entry.attachment)return;
+          document.getElementById('qtm-upload-status').textContent='Datei '+(index+1)+' von '+pendingFiles.length+' wird hochgeladen: '+entry.file.name;
+          return fetch('/api/task-attachments',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/octet-stream'},body:entry.file}).then(function(response){
+            if(!response.ok)throw new Error('Upload fehlgeschlagen (HTTP '+response.status+').');
+            return response.json();
+          }).then(function(result){
+            if(!result.url||!/^\/api\/task-attachments\/[0-9a-f]{32}$/.test(result.url))throw new Error('Ungültige Upload-Antwort.');
+            entry.attachment={id:window.DataLayer.generateId(),name:entry.file.name,url:result.url,type:entry.file.type||'application/octet-stream',size:entry.file.size,addedAt:new Date().toISOString()};
+          });
+        });
+      },Promise.resolve());
+    }
 
     function renderAssigneePicker(){
       var picker=document.getElementById('qtm-assignee-picker');
@@ -641,6 +683,8 @@ function openQuickTaskModal(){
         noteEl.value=existing?(existing+'\n\n'+String(task.note).trim()):String(task.note).trim();
       }
 
+      resizeQuickTaskTextareas();
+
       applyLabelSuggestions(task.labels);
 
       if(Array.isArray(task.assigneeIds)&&task.assigneeIds.length){
@@ -778,6 +822,17 @@ function openQuickTaskModal(){
     overlay.classList.remove('hidden');
     setSharedModalCloseGuard('quicktask-task');
 
+    function resizeQuickTaskTextareas(){
+      content.querySelectorAll('.qtm-new-layout textarea').forEach(function(textarea){
+        textarea.style.height='auto';
+        textarea.style.height=(textarea.scrollHeight+textarea.offsetHeight-textarea.clientHeight+2)+'px';
+      });
+    }
+    content.querySelectorAll('.qtm-new-layout textarea').forEach(function(textarea){
+      textarea.addEventListener('input',resizeQuickTaskTextareas);
+    });
+    resizeQuickTaskTextareas();
+
     var cancelBtn=document.getElementById('qt-cancel');
     if(cancelBtn){
       cancelBtn.addEventListener('click',closeSharedModal);
@@ -861,6 +916,7 @@ function openQuickTaskModal(){
               if(subtaskEl)subtaskEl.value=draft.subtasks.join('\n');
               var attachmentEl=document.getElementById('qtm-attachments');
               if(attachmentEl)attachmentEl.value=newCommits.filter(function(commit){return commit.url;}).map(function(commit){return 'GitHub Commit '+commit.sha+'|'+commit.url;}).join('\n');
+              resizeQuickTaskTextareas();
               review.classList.add('hidden');
               updateAiStatus('Entwurf uebernommen. Bitte pruefen und mit „Erstellen“ anlegen.',false);
             }).catch(function(error){
@@ -947,9 +1003,19 @@ function openQuickTaskModal(){
         payload.documentationOnly=true;
       }
       
-      window.DataLayer.createTask(payload);
-      
-      closeSharedModal();
+      var controls=Array.prototype.map.call(content.querySelectorAll('input, select, textarea, button'),function(control){
+        var wasDisabled=control.disabled;
+        control.disabled=true;
+        return {control:control,wasDisabled:wasDisabled};
+      });
+      uploadPendingFiles().then(function(){
+        payload.attachments=payload.attachments.concat(pendingFiles.map(function(entry){return entry.attachment;}));
+        window.DataLayer.createTask(payload);
+        closeSharedModal();
+      }).catch(function(error){
+        controls.forEach(function(item){item.control.disabled=item.wasDisabled;});
+        document.getElementById('qtm-upload-status').textContent='Dateiupload fehlgeschlagen: '+String(error&&error.message||error);
+      });
     });
     
     // Focus title input for instant typing

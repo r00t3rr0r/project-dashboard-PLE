@@ -3315,6 +3315,7 @@ function renderProjectList(){
     var project=entry.project;
     var hasEmployeeWork=entry.hasEmployeeActiveTask;
     var canEdit=!(auth&&typeof auth.canEditProject==='function')||auth.canEditProject(project);
+    var canDelete=!(auth&&typeof auth.canDeleteProject==='function')||auth.canDeleteProject();
     var canSetProgress=canEdit&&canAdjustProjectProgress(project);
     var flow=calculateProjectFlowMetrics(project);
     var currentProgress=getProjectProgressValue(project,flow);
@@ -3362,7 +3363,7 @@ function renderProjectList(){
     html+='<div class="project-card-menu-panel">';
     html+='<button class="project-card-menu-item" data-action="edit" data-id="'+escapeHtml(project.id)+'" '+(canEdit?'':'disabled')+'>Bearbeiten</button>';
     html+='<button class="project-card-menu-item" data-action="set-progress" data-id="'+escapeHtml(project.id)+'" '+(canSetProgress?'':'disabled')+'>Fortschritt setzen ('+currentProgress+'%)</button>';
-    html+='<button class="project-card-menu-item project-card-menu-item-danger" data-action="delete" data-id="'+escapeHtml(project.id)+'" '+(canEdit?'':'disabled')+'>Loeschen</button>';
+    html+='<button class="project-card-menu-item project-card-menu-item-danger" data-action="delete" data-id="'+escapeHtml(project.id)+'" '+(canDelete?'':'disabled')+'>Loeschen</button>';
     html+='<button class="project-card-menu-item" data-action="sync" data-id="'+escapeHtml(project.id)+'" '+(canEdit?'':'disabled')+'>Commits aktualisieren</button>';
     html+='<button class="project-card-menu-item" data-action="generate-ai-knowledge" data-id="'+escapeHtml(project.id)+'" '+(gh.url&&canEdit?'':'disabled')+'>Projektwissen KI</button>';
     html+='</div>';
@@ -5195,6 +5196,7 @@ function bindListActions(){
     var auth=getAuthManager();
     var project=window.DataLayer.getProjectById(projectId);
     var canEdit=!auth||typeof auth.canEditProject!=='function'||auth.canEditProject(project);
+    var canDelete=!auth||typeof auth.canDeleteProject!=='function'||auth.canDeleteProject();
 
     if(action==='save-project-e2e-workflow'||action==='commit-e2e-workflow'||action==='start-e2e-workflow'){
       if(!canEdit){notify('Dieses Projekt kann nicht bearbeitet werden.','error');return;}
@@ -5218,7 +5220,7 @@ function bindListActions(){
     }
 
     if(action==='delete'){
-      if(!canEdit){
+      if(!canDelete){
         notify('Dieses Projekt kann nicht geloescht werden.','error');
         return;
       }

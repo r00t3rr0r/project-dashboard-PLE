@@ -171,7 +171,7 @@ window.DataLayer.on('dataChanged', function() {
 
 ## Storage HTTP API
 
-Geschuetzte Storage-Endpunkte erwarten den konfigurierten Admin-PIN. Der Browser verwendet den Vollsnapshot beim Start und nach einer Wiederverbindung; laufende SSE-Aenderungen werden gezielt pro Storage-Key geladen.
+Geschuetzte Storage-Endpunkte erwarten ein gueltiges HttpOnly-Sitzungscookie. `POST /api/auth/login` akzeptiert `username`, `password` und optional `remember` (Boolean). Ohne `remember` gilt die Sitzung maximal acht Stunden, mit `remember: true` bis zu 30 Tage. `GET /api/auth/session` prueft und `POST /api/auth/logout` widerruft die Sitzung. Der oeffentliche Endpunkt `GET /api/auth/users` liefert nur `name` und `username` freigeschalteter Konten fuer die Login-Auswahl. Admin-PIN-Header und PIN-Queryparameter werden nicht mehr akzeptiert. Der Browser verwendet den Vollsnapshot beim Start und nach einer Wiederverbindung; laufende SSE-Aenderungen werden gezielt pro Storage-Key geladen.
 
 | Endpunkt | Beschreibung |
 |----------|--------------|

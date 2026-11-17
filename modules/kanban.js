@@ -38,8 +38,6 @@
   var liveRefreshHandle = null;
   var pauseDialogState = null;
   var skipNextTaskRender = false;
-  var MAX_TASK_ATTACHMENT_SIZE = 100 * 1024 * 1024;
-  var MAX_TOTAL_TASK_ATTACHMENT_SIZE = 100 * 1024 * 1024;
 
   function getAuthManager() {
     return window.AuthManager || null;
@@ -81,21 +79,6 @@
     if (value < 1024) return value + ' B';
     if (value < 1024 * 1024) return Math.round(value / 1024) + ' KB';
     return (Math.round((value / (1024 * 1024)) * 10) / 10) + ' MB';
-  }
-
-  function getTaskAttachmentTotalSize(attachments) {
-    return (attachments || []).reduce(function (sum, item) {
-      return sum + (Number(item && item.size) || 0);
-    }, 0);
-  }
-
-  function readFileAsDataUrl(file) {
-    return new Promise(function (resolve, reject) {
-      var reader = new FileReader();
-      reader.onload = function (event) { resolve(event.target.result); };
-      reader.onerror = function () { reject(new Error('Datei konnte nicht gelesen werden.')); };
-      reader.readAsDataURL(file);
-    });
   }
 
   function toDateOnly(value) {
@@ -151,7 +134,21 @@
     return normalizeComparableId(currentUser.id);
   }
 
+  function isEmployeeMode() {
+    var authManager = getAuthManager();
+    return !!(authManager && typeof authManager.getMode === 'function' && authManager.getMode() === 'employee');
+  }
+
+  function canUseAssigneeFilter() {
+    var authManager = getAuthManager();
+    if (!authManager || typeof authManager.getMode !== 'function') return false;
+    var mode = authManager.getMode();
+    return mode === 'admin' || mode === 'management';
+  }
+
   function resolveInitialAssigneeFilter() {
+    if (isEmployeeMode()) return getCurrentLoggedInEmployeeId();
+    if (!canUseAssigneeFilter()) return '';
     return loadPersistedAssigneeFilter() || getCurrentLoggedInEmployeeId();
   }
 
@@ -163,7 +160,7 @@
   }
 
   function setAssigneeFilter(value, shouldRender) {
-    filterAssigneeId = normalizeComparableId(value);
+    filterAssigneeId = isEmployeeMode() ? getCurrentLoggedInEmployeeId() : (canUseAssigneeFilter() ? normalizeComparableId(value) : '');
     persistAssigneeFilter();
     if (shouldRender) renderAllColumns();
   }
@@ -750,6 +747,86 @@
     }).join(', ');
   }
 
+  function getAssignmentResponse(task, employeeId) {
+    var responses = task && task.assignmentResponses;
+    var id = normalizeComparableId(employeeId);
+    return responses && id && responses[id] && typeof responses[id] === 'object' ? responses[id] : null;
+  }
+
+  function setAssignmentResponse(task, status, text) {
+    var employeeId = getCurrentLoggedInEmployeeId();
+    if (!task || !employeeId || getTaskAssigneeIds(task).indexOf(employeeId) === -1) return false;
+    if (!task.assignmentResponses || typeof task.assignmentResponses !== 'object' || Array.isArray(task.assignmentResponses)) task.assignmentResponses = {};
+    var previousResponse = getAssignmentResponse(task, employeeId);
+    task.assignmentResponses[employeeId] = {
+      status: status,
+      assignedAt: previousResponse && previousResponse.assignedAt ? previousResponse.assignedAt : task.updatedAt || task.createdAt || '',
+      respondedAt: getNowIsoString(),
+      text: String(text || '').trim()
+    };
+    return true;
+  }
+
+  function renderAssignmentResponse(task, isPending) {
+    var currentEmployeeId = getCurrentLoggedInEmployeeId();
+    var currentResponse = getAssignmentResponse(task, currentEmployeeId);
+    var responses = task && task.assignmentResponses && typeof task.assignmentResponses === 'object' ? task.assignmentResponses : {};
+
+    if (isEmployeeMode() && isPending && currentResponse && currentResponse.status === 'pending') {
+      return '<div class="kanban-assignment-actions"><strong>Neue Zuweisung</strong><div>' +
+        '<button type="button" class="btn btn-primary" data-assignment-accept="' + escapeHtml(task.id) + '">Annehmen</button>' +
+        '<button type="button" class="btn btn-secondary" data-assignment-work="' + escapeHtml(task.id) + '">Bearbeiten</button>' +
+        '<button type="button" class="btn btn-secondary" data-assignment-question="' + escapeHtml(task.id) + '">Rückfrage</button>' +
+        '<button type="button" class="btn btn-danger" data-assignment-reject="' + escapeHtml(task.id) + '">Ablehnen</button>' +
+        '</div></div>';
+    }
+
+    var summary = '';
+    Object.keys(responses).forEach(function (employeeId) {
+      var response = responses[employeeId];
+      if (!response || !response.status || response.status === 'pending') return;
+      var employee = (window.DataLayer.getEmployees() || []).find(function (item) {
+        return normalizeComparableId(item && item.id) === normalizeComparableId(employeeId);
+      });
+      var label = response.status === 'accepted' ? 'angenommen' : response.status === 'working' ? 'in Bearbeitung' : response.status === 'rejected' ? 'abgelehnt' : response.status === 'question' ? 'Rückfrage' : '';
+      if (!label) return;
+      var detail = (employee && employee.name ? escapeHtml(employee.name) + ': ' : '') + escapeHtml(label);
+      if (response.text) detail += ' · ' + escapeHtml(response.text);
+      summary += '<span class="kanban-assignment-response">' + detail + '</span>';
+    });
+    return summary ? '<div class="kanban-assignment-response-list">' + summary + '</div>' : '';
+  }
+
+  function respondToAssignment(taskId, status, text) {
+    var task = window.DataLayer.getTaskById(taskId);
+    var response = task && getAssignmentResponse(task, getCurrentLoggedInEmployeeId());
+    if (!task || task.status !== 'backlog' || !response || response.status !== 'pending') return false;
+    if (!setAssignmentResponse(task, status, text)) return false;
+    window.DataLayer.updateTask(task);
+    return true;
+  }
+
+  function startAssignedTask(taskId) {
+    var task = window.DataLayer.getTaskById(taskId);
+    var auth = getAuthManager();
+    var response = task && getAssignmentResponse(task, getCurrentLoggedInEmployeeId());
+    if (!task || task.status !== 'backlog' || !response || response.status !== 'pending' ||
+        (auth && typeof auth.canMoveTask === 'function' && !auth.canMoveTask(task))) return;
+    if (task.dependencyBlocked) {
+      alert('Diese Aufgabe ist noch von einer vorherigen Aufgabe abhaengig und kann erst danach gestartet werden.');
+      return;
+    }
+    checkWipLimit('in-progress', function (canMove, message) {
+      if (!canMove) {
+        alert(message);
+        return;
+      }
+      setAssignmentResponse(task, 'working', '');
+      applyTaskStatusTransition(task, 'in-progress', { at: getNowIsoString() });
+      window.DataLayer.updateTask(task);
+    });
+  }
+
   function getAssigneeGroupInfo(task) {
     var assignee = getAssignee(task);
     if (!assignee) {
@@ -1036,6 +1113,11 @@
     var requestedStatus = String(status || '').trim().toLowerCase();
     if (requestedStatus && taskStatus !== requestedStatus) return false;
     var taskAssigneeIds = getTaskAssigneeIds(task).map(normalizeComparableId);
+    if (isEmployeeMode()) {
+      var currentEmployeeId = getCurrentLoggedInEmployeeId();
+      if (!currentEmployeeId || taskAssigneeIds.indexOf(currentEmployeeId) === -1) return false;
+      if (taskStatus === 'backlog' && !taskAssigneeIds.length) return false;
+    }
     var selectedAssigneeId = normalizeComparableId(filterAssigneeId);
     if (selectedAssigneeId === UNASSIGNED_FILTER_VALUE && taskAssigneeIds.length) return false;
     if (selectedAssigneeId && selectedAssigneeId !== UNASSIGNED_FILTER_VALUE && taskAssigneeIds.indexOf(selectedAssigneeId) === -1) return false;
@@ -1497,6 +1579,8 @@
     var urgencyTone = getUrgencyColor(urgency);
     var dueDateLabel = task.dueDate ? formatDateShort(task.dueDate) : '';
     var isOverdue = task.dueDate && toDateOnly(task.dueDate) < getTodayDateKey() && task.status !== 'done';
+    var currentAssignmentResponse = getAssignmentResponse(task, getCurrentLoggedInEmployeeId());
+    var isPendingAssignment = isEmployeeMode() && task.status === 'backlog' && currentAssignmentResponse && currentAssignmentResponse.status === 'pending';
     var description = (task.description || '').trim();
     var progressValue = normalizeTaskProgress(task.progress, 0);
     var attachmentCount = Array.isArray(task.attachments) ? task.attachments.length : 0;
@@ -1523,7 +1607,8 @@
       : '';
     var effortMetaLabel = effortSnapshot.timingLabel + (effortSnapshot.pauseHint ? ' · ' + effortSnapshot.pauseHint : '');
 
-    var html = '<div class="kanban-card ' + priorityClass + (timingState === 'paused' ? ' is-paused' : '') + (isCompactMode ? ' is-compact' : '') + (editable ? '' : ' auth-readonly-card') + '" data-task-id="' + escapeHtml(task.id) + '" draggable="' + (movable ? 'true' : 'false') + '">';
+    var html = '<div class="kanban-card ' + priorityClass + (timingState === 'paused' ? ' is-paused' : '') + (isPendingAssignment ? ' is-assignment-pending' : '') + (isCompactMode ? ' is-compact' : '') + (editable ? '' : ' auth-readonly-card') + '" data-task-id="' + escapeHtml(task.id) + '" draggable="' + (movable ? 'true' : 'false') + '">';
+    html += renderAssignmentResponse(task, isPendingAssignment);
 
     if (isCompactMode) {
       html += '<div class="kanban-card-head kanban-card-compact-head">';
@@ -2334,41 +2419,20 @@
   function addFilesToTaskDraft(taskDraft, fileList) {
     var files = Array.prototype.slice.call(fileList || []);
     if (!taskDraft || !files.length) return Promise.resolve({ added: 0 });
-
-    var currentTotal = getTaskAttachmentTotalSize(taskDraft.attachments);
-    var jobs = [];
-    var allowedFiles = [];
-
-    files.forEach(function (file) {
-      if (file.size > MAX_TASK_ATTACHMENT_SIZE) {
-        alert('Datei "' + file.name + '" ist zu gross (max ' + formatBytes(MAX_TASK_ATTACHMENT_SIZE) + ').');
-        return;
-      }
-      if (currentTotal + file.size > MAX_TOTAL_TASK_ATTACHMENT_SIZE) {
-        alert('Anhang-Limit pro Aufgabe erreicht. Maximal ' + formatBytes(MAX_TOTAL_TASK_ATTACHMENT_SIZE) + '.');
-        return;
-      }
-      currentTotal += file.size;
-      allowedFiles.push(file);
-      jobs.push(readFileAsDataUrl(file));
-    });
-
-    if (!jobs.length) return Promise.resolve({ added: 0 });
-
-    return Promise.all(jobs).then(function (dataUrls) {
-      dataUrls.forEach(function (dataUrl, index) {
-        var file = allowedFiles[index];
-        taskDraft.attachments.push({
-          id: window.DataLayer.generateId(),
-          name: file.name,
-          url: '',
-          dataUrl: dataUrl,
-          type: file.type || 'application/octet-stream',
-          size: file.size || 0,
-          addedAt: new Date().toISOString()
+    var uploaded = [];
+    return files.reduce(function (previous, file) {
+      return previous.then(function () {
+        return fetch('/api/task-attachments', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream' }, body: file }).then(function (response) {
+          if (!response.ok) throw new Error('Upload fehlgeschlagen (HTTP ' + response.status + ').');
+          return response.json();
+        }).then(function (result) {
+          if (!result.url || !/^\/api\/task-attachments\/[0-9a-f]{32}$/.test(result.url)) throw new Error('Ungueltige Upload-Antwort.');
+          uploaded.push({ id: window.DataLayer.generateId(), name: file.name, url: result.url, type: file.type || 'application/octet-stream', size: file.size, addedAt: new Date().toISOString() });
         });
       });
-      return { added: allowedFiles.length };
+    }, Promise.resolve()).then(function () {
+      taskDraft.attachments = taskDraft.attachments.concat(uploaded);
+      return { added: uploaded.length };
     });
   }
 
@@ -2389,9 +2453,14 @@
 
     picker.addEventListener('change', function () {
       if (!picker.files || !picker.files.length) return;
-      addFilesToTaskDraft(task, picker.files).then(function (result) {
+      var uploadDraft = { attachments: [] };
+      addFilesToTaskDraft(uploadDraft, picker.files).then(function (result) {
         if (!result || result.added <= 0) return;
-        window.DataLayer.updateTask(task);
+        var freshTask = window.DataLayer.getTaskById(taskId);
+        if (!freshTask) throw new Error('Die Aufgabe ist nicht mehr vorhanden.');
+        if (auth && typeof auth.canEditTask === 'function' && !auth.canEditTask(freshTask)) throw new Error('Die Aufgabe kann nicht mehr bearbeitet werden.');
+        freshTask.attachments = (freshTask.attachments || []).concat(uploadDraft.attachments);
+        window.DataLayer.updateTask(freshTask);
       }).catch(function (error) {
         alert('Dateiupload fehlgeschlagen: ' + error.message);
       });
@@ -2822,13 +2891,14 @@
     }).join('');
 
     content.innerHTML = '' +
-      '<h2>Aufgabe steuern</h2>' +
-      '<p class="text-muted">Erstellt: ' + escapeHtml(new Date(currentTaskDraft.createdAt || Date.now()).toLocaleString('de-DE')) + '</p>' +
+      '<header class="task-cockpit-header"><div><p class="task-cockpit-eyebrow">Aufgabe bearbeiten</p><h2>' + escapeHtml(currentTaskDraft.title || 'Ohne Titel') + '</h2><p class="text-muted">Erstellt: ' + escapeHtml(new Date(currentTaskDraft.createdAt || Date.now()).toLocaleString('de-DE')) + '</p></div></header>' +
+      '<div class="task-cockpit-layout">' +
+      '<section class="task-cockpit-section"><h3>Aufgabendaten</h3>' +
       '<div class="task-cockpit-grid">' +
       '  <div class="form-group"><label for="task-cockpit-title">Titel *</label><input type="text" id="task-cockpit-title" value="' + escapeHtml(currentTaskDraft.title || '') + '"></div>' +
       '  <div class="form-group"><label for="task-cockpit-status">Status</label><select id="task-cockpit-status"><option value="backlog">Backlog</option><option value="todo">To Do</option><option value="in-progress">In Progress</option><option value="review">Review</option><option value="done">Done</option></select></div>' +
       '</div>' +
-      '<div class="form-group"><label for="task-cockpit-description">Beschreibung</label><textarea id="task-cockpit-description" rows="3">' + escapeHtml(currentTaskDraft.description || '') + '</textarea></div>' +
+      '<div class="form-group"><label for="task-cockpit-description">Beschreibung</label><textarea id="task-cockpit-description" rows="7">' + escapeHtml(currentTaskDraft.description || '') + '</textarea></div>' +
       '<div class="task-cockpit-grid">' +
       '  <div class="form-group"><label for="task-cockpit-priority">Priorität</label><select id="task-cockpit-priority"><option value="low">Niedrig</option><option value="medium">Mittel</option><option value="high">Hoch</option><option value="blocker">Blocker</option></select></div>' +
       '  <div class="form-group"><label for="task-cockpit-urgency">Dringlichkeit</label><select id="task-cockpit-urgency"><option value="low">Niedrig</option><option value="normal">Normal</option><option value="high">Hoch</option><option value="critical">Kritisch</option></select></div>' +
@@ -2836,28 +2906,33 @@
       '</div>' +
       '<div class="task-cockpit-grid">' +
       '  <div class="form-group"><label>Zuweisung</label><div id="task-cockpit-assignee-picker" class="qtm-assignee-picker"></div><small class="task-cockpit-assignee-meta">Mehrfachauswahl: Mitarbeiter per Klick zuweisen</small></div>' +
-      '  <div class="form-group"><label for="task-cockpit-project">Projekt</label><select id="task-cockpit-project">' + projectOptions + '</select></div>' +
       '</div>' +
+      '<div class="task-cockpit-grid">' +
+      '  <div class="form-group"><label for="task-cockpit-project">Projekt</label><select id="task-cockpit-project">' + projectOptions + '</select></div>' +
       '<div class="form-group"><label for="task-cockpit-labels">Labels</label><select id="task-cockpit-labels" multiple style="min-height:96px;">' + labelOptions + '</select></div>' +
       '<div class="form-group"><label for="task-cockpit-schedule-mode">Terminlogik</label><select id="task-cockpit-schedule-mode"><option value="none">Kein Termin</option><option value="deadline">Deadline</option><option value="fixed">Fester Termin</option><option value="range">Zeitraum</option><option value="asap">Umgehend</option></select></div>' +
+      '</div>' +
       '<div id="task-cockpit-schedule-fields"></div>' +
-      '<hr>' +
-      '<div id="task-cockpit-chain-wrap">' + buildTaskChainEditorHtml(currentTaskChainDraft) + '</div>' +
-      '<hr>' +
+      '</section>' +
+      '<section class="task-cockpit-section">' +
       '<h3>Teilaufgaben</h3>' +
       '<div id="task-cockpit-subtasks">' + buildSubtaskListHtml(currentTaskDraft) + '</div>' +
       '<div class="task-cockpit-inline">' +
       '  <input type="text" id="task-cockpit-subtask-input" placeholder="Neue Teilaufgabe">' +
       '  <button type="button" class="btn btn-secondary" id="task-cockpit-subtask-add">Hinzufügen</button>' +
       '</div>' +
-      '<hr>' +
+      '</section>' +
+      '<div class="task-cockpit-extra">' +
+      '<section class="task-cockpit-section"><div id="task-cockpit-chain-wrap">' + buildTaskChainEditorHtml(currentTaskChainDraft) + '</div></section>' +
+      '<section class="task-cockpit-section">' +
       '<h3>Notizen / Hinweise</h3>' +
       '<div id="task-cockpit-notes">' + buildNotesHtml(currentTaskDraft) + '</div>' +
       '<div class="task-cockpit-inline">' +
       '  <input type="text" id="task-cockpit-note-input" placeholder="Hinweis hinzufügen">' +
       '  <button type="button" class="btn btn-secondary" id="task-cockpit-note-add">Hinzufügen</button>' +
       '</div>' +
-      '<hr>' +
+      '</section>' +
+      '<section class="task-cockpit-section">' +
       '<h3>Dateien / Links</h3>' +
       '<div id="task-cockpit-attachments">' + buildAttachmentsHtml(currentTaskDraft) + '</div>' +
       '<div class="task-cockpit-grid">' +
@@ -2867,10 +2942,12 @@
       '<div class="task-cockpit-inline">' +
       '  <button type="button" class="kanban-icon-btn" id="task-cockpit-attachment-upload" title="Datei anhaengen"><span class="material-symbols-rounded" aria-hidden="true">attach_file</span><span class="sr-only">Datei anhaengen</span></button>' +
       '  <input type="file" id="task-cockpit-attachment-file" class="sr-only" multiple>' +
-      '  <span class="text-muted">Datei hochladen oder Link per Enter hinzufuegen. Max. ' + formatBytes(MAX_TASK_ATTACHMENT_SIZE) + ' pro Datei.</span>' +
+      '  <span class="text-muted">Datei hochladen oder Link per Enter hinzufuegen.</span>' +
       '</div>' +
-      '<hr>' +
+      '<p class="text-muted" id="task-cockpit-upload-status" role="status" aria-live="polite"></p>' +
+      '</section>' +
       buildTaskBlockerPanel(currentTaskDraft) +
+      '</div></div>' +
       '<div class="modal-actions">' +
       '  <button type="button" class="btn btn-secondary" id="task-cockpit-close">Schließen</button>' +
       '  <button type="button" class="btn btn-danger" id="task-cockpit-delete">Löschen</button>' +
@@ -2878,6 +2955,16 @@
       '</div>';
 
     overlay.classList.remove('hidden');
+
+    var descriptionInput = document.getElementById('task-cockpit-description');
+    function resizeTaskDescription() {
+      descriptionInput.style.height = 'auto';
+      descriptionInput.style.height = (descriptionInput.scrollHeight + descriptionInput.offsetHeight - descriptionInput.clientHeight + 2) + 'px';
+    }
+    if (descriptionInput) {
+      resizeTaskDescription();
+      descriptionInput.addEventListener('input', resizeTaskDescription);
+    }
 
     var statusInput = document.getElementById('task-cockpit-status');
     var priorityInput = document.getElementById('task-cockpit-priority');
@@ -3078,14 +3165,26 @@
       });
 
       attachmentFileInput.addEventListener('change', function () {
+        if (!attachmentFileInput.files || !attachmentFileInput.files.length) return;
+        var uploadStatus = document.getElementById('task-cockpit-upload-status');
+        uploadStatus.textContent = 'Dateien werden hochgeladen ...';
+        var controls = Array.prototype.map.call(content.querySelectorAll('input, select, textarea, button'), function (control) {
+          var wasDisabled = control.disabled;
+          control.disabled = true;
+          return { control: control, wasDisabled: wasDisabled };
+        });
         addFilesToTaskDraft(currentTaskDraft, attachmentFileInput.files).then(function (result) {
           if (result && result.added > 0) {
             attachmentsContainer.innerHTML = buildAttachmentsHtml(currentTaskDraft);
+            uploadStatus.textContent = 'Dateien hochgeladen.';
           }
           attachmentFileInput.value = '';
         }).catch(function (error) {
           attachmentFileInput.value = '';
+          uploadStatus.textContent = 'Dateiupload fehlgeschlagen: ' + error.message;
           alert('Dateiupload fehlgeschlagen: ' + error.message);
+        }).finally(function () {
+          controls.forEach(function (item) { item.control.disabled = item.wasDisabled; });
         });
       });
     }
@@ -3211,6 +3310,42 @@
     });
 
     document.addEventListener('click', function (e) {
+      var acceptAssignmentBtn = e.target.closest('[data-assignment-accept]');
+      if (acceptAssignmentBtn) {
+        respondToAssignment(acceptAssignmentBtn.getAttribute('data-assignment-accept'), 'accepted', '');
+        return;
+      }
+
+      var workAssignmentBtn = e.target.closest('[data-assignment-work]');
+      if (workAssignmentBtn) {
+        startAssignedTask(workAssignmentBtn.getAttribute('data-assignment-work'));
+        return;
+      }
+
+      var rejectAssignmentBtn = e.target.closest('[data-assignment-reject]');
+      if (rejectAssignmentBtn) {
+        var rejectReason = window.prompt('Bitte den Grund für die Ablehnung angeben:');
+        if (rejectReason === null) return;
+        if (!rejectReason.trim()) {
+          alert('Für eine Ablehnung ist ein Grund erforderlich.');
+          return;
+        }
+        respondToAssignment(rejectAssignmentBtn.getAttribute('data-assignment-reject'), 'rejected', rejectReason.trim());
+        return;
+      }
+
+      var questionAssignmentBtn = e.target.closest('[data-assignment-question]');
+      if (questionAssignmentBtn) {
+        var questionText = window.prompt('Welche Rückfrage hast du zu dieser Aufgabe?');
+        if (questionText === null) return;
+        if (!questionText.trim()) {
+          alert('Bitte gib deine Rückfrage ein.');
+          return;
+        }
+        respondToAssignment(questionAssignmentBtn.getAttribute('data-assignment-question'), 'question', questionText.trim());
+        return;
+      }
+
       var overviewIntakeBtn = e.target.closest('[data-overview-task-intake]');
       if (overviewIntakeBtn) {
         intakeTaskFromOverview(overviewIntakeBtn.getAttribute('data-overview-task-intake'));
@@ -3335,13 +3470,15 @@
     html += '<button type="button" class="kanban-view-btn is-active" data-kanban-group-mode="stacked" aria-pressed="true"><span class="material-symbols-rounded" aria-hidden="true">groups</span><span>Pro Zuweisung</span></button>';
     html += '<button type="button" class="kanban-view-btn" data-kanban-group-mode="plain" aria-pressed="false"><span class="material-symbols-rounded" aria-hidden="true">stacks</span><span>Nur Karten</span></button>';
     html += '</div>';
-    html += '<div class="kanban-filter-group">';
-    html += '<label for="filter-assignee">Mitarbeiter</label>';
-    html += '<select id="filter-assignee">';
-    html += '<option value="">Alle</option>';
-    html += '<option value="' + UNASSIGNED_FILTER_VALUE + '">Nicht zugewiesen</option>';
-    html += '</select>';
-    html += '</div>';
+    if (canUseAssigneeFilter()) {
+      html += '<div class="kanban-filter-group">';
+      html += '<label for="filter-assignee">Mitarbeiter</label>';
+      html += '<select id="filter-assignee">';
+      html += '<option value="">Alle</option>';
+      html += '<option value="' + UNASSIGNED_FILTER_VALUE + '">Nicht zugewiesen</option>';
+      html += '</select>';
+      html += '</div>';
+    }
     html += '<div class="kanban-filter-group">';
     html += '<label for="filter-priority">Prioritaet</label>';
     html += '<select id="filter-priority">';
@@ -3377,9 +3514,12 @@
     filterBar.innerHTML = html;
 
     // Event-Handler für Filter-Dropdowns
-    document.getElementById('filter-assignee').addEventListener('change', function(e) {
-      setAssigneeFilter(e.target.value, true);
-    });
+    var assigneeFilterSelect = document.getElementById('filter-assignee');
+    if (assigneeFilterSelect) {
+      assigneeFilterSelect.addEventListener('change', function(e) {
+        setAssigneeFilter(e.target.value, true);
+      });
+    }
 
     document.getElementById('filter-priority').addEventListener('change', function(e) {
       filterPriority = e.target.value;
@@ -3424,12 +3564,21 @@
 
       if (window.addEventListener) {
         window.addEventListener('authChanged', function () {
-          if (!filterAssigneeId) {
-            var currentEmployeeId = getCurrentLoggedInEmployeeId();
-            if (currentEmployeeId) {
-              setAssigneeFilter(currentEmployeeId, true);
-            }
-          }
+          setupFilters();
+          setAssigneeFilter(resolveInitialAssigneeFilter(), false);
+          renderAllColumns();
+        });
+      }
+
+      if (window.DataLayer && window.DataLayer.ready && typeof window.DataLayer.ready.then === 'function') {
+        window.DataLayer.ready.then(function () {
+          setupFilters();
+          setAssigneeFilter(resolveInitialAssigneeFilter(), false);
+          renderAllColumns();
+        }, function () {
+          setupFilters();
+          setAssigneeFilter(resolveInitialAssigneeFilter(), false);
+          renderAllColumns();
         });
       }
     } catch(e) { console.error('[' + NAMESPACE + '] Error:', e); }

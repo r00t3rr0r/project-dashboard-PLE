@@ -8,129 +8,43 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400,0,0" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=20261113d">
-<link rel="stylesheet" href="theme-override.css?v=20261113a">
+<link rel="stylesheet" href="styles.css?v=20261117d">
+<link rel="stylesheet" href="theme-override.css?v=20261117e">
 <!-- Data Layer -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
-<script>
-  (function () {
-    'use strict';
-
-    var PIN_STORAGE_KEY = 'pd_admin_pin';
-
-    function readPin() {
-      try {
-        return String(window.sessionStorage.getItem(PIN_STORAGE_KEY) || '').trim();
-      } catch (_err) {
-        return '';
-      }
-    }
-
-    function setPin(pin) {
-      var value = String(pin || '').trim();
-      try {
-        if (!value) {
-          window.sessionStorage.removeItem(PIN_STORAGE_KEY);
-        } else {
-          window.sessionStorage.setItem(PIN_STORAGE_KEY, value);
-        }
-      } catch (_err) {}
-      return value;
-    }
-
-    function clearPin() {
-      setPin('');
-    }
-
-    function shouldAttachPinToUrl(url) {
-      try {
-        var parsed = new URL(String(url || ''), window.location.origin);
-        var isApiPath = parsed.pathname.indexOf('/api/') === 0;
-        if (!isApiPath) return false;
-
-        var sameOrigin = parsed.origin === window.location.origin;
-        var localHost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
-        var isLocalOllama = localHost && parsed.port === '11434';
-        if (isLocalOllama) return false;
-        return sameOrigin || localHost;
-      } catch (_err) {
-        return false;
-      }
-    }
-
-    function buildHeaders(sourceHeaders) {
-      if (typeof Headers === 'undefined') {
-        return sourceHeaders || {};
-      }
-      return new Headers(sourceHeaders || {});
-    }
-
-    var nativeFetch = typeof window.fetch === 'function' ? window.fetch.bind(window) : null;
-    if (nativeFetch) {
-      window.fetch = function (input, init) {
-        var request = input;
-        var nextInit = init ? Object.assign({}, init) : {};
-        var targetUrl = '';
-
-        if (typeof input === 'string' || (input && typeof input.url === 'string')) {
-          targetUrl = typeof input === 'string' ? input : input.url;
-        }
-
-        if (input && typeof Request !== 'undefined' && input instanceof Request) {
-          request = input;
-          nextInit = init ? Object.assign({}, init) : {
-            method: input.method,
-            mode: input.mode,
-            cache: input.cache,
-            credentials: input.credentials,
-            redirect: input.redirect,
-            referrer: input.referrer,
-            integrity: input.integrity
-          };
-          targetUrl = input.url;
-        }
-
-        if (targetUrl && shouldAttachPinToUrl(targetUrl)) {
-          var pin = readPin();
-          if (pin) {
-            var headers = buildHeaders(nextInit.headers);
-            headers.set('X-Admin-Pin', pin);
-            nextInit.headers = headers;
-          }
-        }
-
-        return nativeFetch(request, nextInit);
-      };
-    }
-
-    window.ProjektDashboardSecurity = {
-      readPin: readPin,
-      setPin: setPin,
-      clearPin: clearPin
-    };
-  })();
-</script>
-  <script src="data.js?v=20261113a"></script>
-<script src="modules/auth.js?v=20260820a"></script>
+<style>
+  body.auth-locked { overflow: hidden; }
+  body.auth-locked > :not(#auth-gate):not(script) { display: none !important; }
+  #auth-gate[hidden] { display: none !important; }
+  .auth-gate { position: fixed; inset: 0; z-index: 10000; min-height: 100dvh; overflow-y: auto; display: grid; place-items: center; padding: 24px; box-sizing: border-box; background: var(--bg-primary, #151719); }
+  .auth-gate-panel { width: min(100%, 360px); }
+  .auth-gate-panel h1 { font-size: 24px; margin: 0 0 24px; }
+  .auth-gate-form { display: grid; gap: 12px; }
+  .auth-gate-form > input, .auth-gate-form > select { box-sizing: border-box; width: 100%; min-width: 0; padding: 12px; border: 1px solid var(--border-color, #666); border-radius: 6px; background: var(--bg-secondary, #25282b); color: inherit; font: inherit; }
+  .auth-remember { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+  .auth-gate-error { color: var(--danger, #ed7777); font-size: 14px; }
+</style>
+  <script src="data.js?v=20261117c"></script>
+<script src="modules/auth.js?v=20261117e"></script>
 <!-- Core: App Router, Theme, Export/Import -->
-<script src="modules/app.js?v=20260816b"></script>
+<script src="modules/app.js?v=20261117e"></script>
 <!-- Feature Modules (alphabetical) -->
 <script src="modules/analytics.js?v=20260730b"></script>
 <script src="modules/calendar.js?v=20260818b"></script>
 <script src="modules/dashboard.js?v=20261113b"></script>
 <script src="modules/documentation.js?v=20260730b"></script>
-<script src="modules/employees.js?v=20260731a"></script>
+<script src="modules/employees.js?v=20261117a"></script>
 <script src="modules/integrations.js?v=20260730b"></script>
-<script src="modules/kanban.js?v=20260903c"></script>
+<script src="modules/kanban.js?v=20261117d"></script>
 <script src="modules/labels.js?v=20260730y"></script>
 <script src="modules/notifications.js?v=20260730b"></script>
 <script src="modules/prompt-config.js?v=20260830a"></script>
 <script src="modules/local-ollama.js?v=20260903b"></script>
 <script src="modules/ai-conf.js?v=20260903d"></script>
-  <script src="modules/projects.js?v=20260903i"></script>
+  <script src="modules/projects.js?v=20261117a"></script>
 <script src="modules/ki-workflow.js?v=20260830a"></script>
 <script src="modules/meeting.js?v=20260830a"></script>
-<script src="modules/quicktask.js?v=20260903a"></script>
+<script src="modules/quicktask.js?v=20261117c"></script>
 <script src="modules/task-history.js?v=20260816b"></script>
 <script src="modules/releases.js?v=20260730u"></script>
 <script src="modules/search.js?v=20260730k"></script>
@@ -143,20 +57,21 @@
 <script src="modules/healthcheck.js?v=20260730c"></script>
 <script src="modules/timeline.js?v=20260730w"></script>
 </head>
-<body class="admin-pin-locked">
+<body class="auth-locked">
   <div class="app-shell-glow app-shell-glow-left"></div>
   <div class="app-shell-glow app-shell-glow-right"></div>
-  <div id="admin-pin-gate" class="admin-pin-gate" role="dialog" aria-modal="true" aria-labelledby="admin-pin-title">
-    <div class="admin-pin-panel">
-      <p class="admin-pin-kicker">Sicherheitsfreigabe</p>
-      <h1 id="admin-pin-title">Administrator PIN erforderlich</h1>
-      <p class="admin-pin-text">Bitte PIN eingeben, um das Dashboard zu entsperren.</p>
-      <form id="admin-pin-form" class="admin-pin-form" autocomplete="off">
-        <label for="admin-pin-input">PIN</label>
-        <input id="admin-pin-input" name="admin-pin" type="password" inputmode="numeric" autocomplete="one-time-code" required>
-        <button id="admin-pin-submit" type="submit" class="btn btn-primary">Entsperren</button>
+  <div id="auth-gate" class="auth-gate" aria-labelledby="auth-gate-title">
+    <div class="auth-gate-panel">
+      <h1 id="auth-gate-title">Anmelden</h1>
+      <form id="auth-gate-form" class="auth-gate-form">
+        <label for="auth-gate-username">Benutzername</label>
+        <select id="auth-gate-username" name="username" autocomplete="username" required autofocus disabled><option value="">Mitarbeiter werden geladen...</option></select>
+        <label for="auth-gate-password">Passwort</label>
+        <input id="auth-gate-password" name="password" type="password" autocomplete="current-password" required>
+        <label class="auth-remember"><input id="auth-gate-remember" name="remember" type="checkbox"> Angemeldet bleiben</label>
+        <button id="auth-gate-submit" type="submit" class="btn btn-primary">Anmelden</button>
       </form>
-      <p id="admin-pin-error" class="admin-pin-error" hidden>PIN ungueltig oder Server nicht erreichbar.</p>
+      <p id="auth-gate-error" class="auth-gate-error" role="alert" hidden></p>
     </div>
   </div>
   <!-- Sidebar Navigation -->
@@ -174,26 +89,34 @@
     </div>
     <ul class="nav-menu">
       <li><a href="#" data-page="dashboard" data-label="Dashboard" data-kicker="Zentrale Lage" class="active"><span class="nav-icon material-symbols-rounded" aria-hidden="true">dashboard</span><span>Dashboard</span></a></li>
+      <li><a href="#" data-page="kanban" data-label="Aufgaben" data-kicker="Aufgabenfluss"><span class="nav-icon material-symbols-rounded" aria-hidden="true">view_kanban</span><span>Aufgaben</span></a></li>
+      <li><a href="#" data-page="calendar" data-label="Kalender" data-kicker="Kapazitaeten"><span class="nav-icon material-symbols-rounded" aria-hidden="true">calendar_month</span><span>Kalender</span></a></li>
+      <li class="nav-group"><details><summary title="Projekte und Planung"><span class="nav-icon material-symbols-rounded" aria-hidden="true">folder_managed</span><span class="nav-group-label">Projekte &amp; Planung</span><span class="nav-group-chevron material-symbols-rounded" aria-hidden="true">expand_more</span></summary><ul>
       <li><a href="#" data-page="projects" data-label="Projekte" data-kicker="Portfolio Steuerung"><span class="nav-icon material-symbols-rounded" aria-hidden="true">folder_managed</span><span>Projekte</span></a></li>
-      <li><a href="#" data-page="meeting" data-label="Meeting Protokoll" data-kicker="Live Mitschrift"><span class="nav-icon material-symbols-rounded" aria-hidden="true">record_voice_over</span><span>Meeting Protokoll</span></a></li>
       <li><a href="#" data-page="tasks" data-label="Aufgaben" data-kicker="Aufgabenhistorie"><span class="nav-icon material-symbols-rounded" aria-hidden="true">history</span><span>Aufgaben</span></a></li>
-      <li><a href="#" data-page="kanban" data-label="Kanban Board" data-kicker="Aufgabenfluss"><span class="nav-icon material-symbols-rounded" aria-hidden="true">view_kanban</span><span>Kanban Board</span></a></li>
-      <li><a href="#" data-page="calendar" data-label="Team-Kalender" data-kicker="Kapazitaeten"><span class="nav-icon material-symbols-rounded" aria-hidden="true">calendar_month</span><span>Team-Kalender</span></a></li>
-      <li><a href="#" data-page="analytics" data-label="Analytics" data-kicker="Kennzahlen"><span class="nav-icon material-symbols-rounded" aria-hidden="true">monitoring</span><span>Analytics</span></a></li>
-      <li><a href="#" data-page="employees" data-label="Mitarbeiter" data-kicker="Teamstruktur"><span class="nav-icon material-symbols-rounded" aria-hidden="true">groups</span><span>Mitarbeiter</span></a></li>
-      <li><a href="#" data-page="labels" data-label="Labels" data-kicker="Taxonomie"><span class="nav-icon material-symbols-rounded" aria-hidden="true">sell</span><span>Labels</span></a></li>
       <li><a href="#" data-page="quicktask" data-label="QuickTask" data-kicker="Schnellerfassung"><span class="nav-icon material-symbols-rounded" aria-hidden="true">bolt</span><span>QuickTask</span></a></li>
-      <li><a href="#" data-page="ai-conf" data-label="AI Conf" data-kicker="KI Steuerung"><span class="nav-icon material-symbols-rounded" aria-hidden="true">tune</span><span>AI Conf</span></a></li>
-      <li><a href="#" data-page="healthcheck" data-label="Gesundheits-Check" data-kicker="Risikoanalyse"><span class="nav-icon material-symbols-rounded" aria-hidden="true">health_and_safety</span><span>Gesundheits-Check</span></a></li>
       <li><a href="#" data-page="timeline" data-label="Timeline" data-kicker="Verlauf"><span class="nav-icon material-symbols-rounded" aria-hidden="true">timeline</span><span>Timeline</span></a></li>
       <li><a href="#" data-page="releases" data-label="Releases" data-kicker="Auslieferung"><span class="nav-icon material-symbols-rounded" aria-hidden="true">deployed_code</span><span>Releases</span></a></li>
-      <li><a href="#" data-page="standup" data-label="Standup" data-kicker="Team Sync"><span class="nav-icon material-symbols-rounded" aria-hidden="true">forum</span><span>Standup</span></a></li>
-      <li><a href="#" data-page="documentation" data-label="Dokumentation" data-kicker="Wissensbasis"><span class="nav-icon material-symbols-rounded" aria-hidden="true">article</span><span>Dokumentation</span></a></li>
-      <li><a href="#" data-page="notifications" data-label="Benachrichtigungen" data-kicker="Updates"><span class="nav-icon material-symbols-rounded" aria-hidden="true">notifications</span><span>Benachrichtigungen</span></a></li>
-      <li><a href="#" data-page="templates" data-label="Vorlagen" data-kicker="Standards"><span class="nav-icon material-symbols-rounded" aria-hidden="true">inventory_2</span><span>Vorlagen</span></a></li>
-      <li><a href="#" data-page="sharing" data-label="Sharing" data-kicker="Freigaben"><span class="nav-icon material-symbols-rounded" aria-hidden="true">ios_share</span><span>Sharing</span></a></li>
-      <li><a href="#" data-page="integrations" data-label="Integrationen" data-kicker="Systeme"><span class="nav-icon material-symbols-rounded" aria-hidden="true">hub</span><span>Integrationen</span></a></li>
       <li><a href="#" data-page="sprint" data-label="Sprints" data-kicker="Lieferzyklen"><span class="nav-icon material-symbols-rounded" aria-hidden="true">directions_run</span><span>Sprints</span></a></li>
+      </ul></details></li>
+      <li class="nav-group"><details><summary title="Team und Zusammenarbeit"><span class="nav-icon material-symbols-rounded" aria-hidden="true">groups</span><span class="nav-group-label">Team &amp; Zusammenarbeit</span><span class="nav-group-chevron material-symbols-rounded" aria-hidden="true">expand_more</span></summary><ul>
+      <li><a href="#" data-page="employees" data-label="Mitarbeiter" data-kicker="Teamstruktur"><span class="nav-icon material-symbols-rounded" aria-hidden="true">groups</span><span>Mitarbeiter</span></a></li>
+      <li><a href="#" data-page="meeting" data-label="Meeting Protokoll" data-kicker="Live Mitschrift"><span class="nav-icon material-symbols-rounded" aria-hidden="true">record_voice_over</span><span>Meeting Protokoll</span></a></li>
+      <li><a href="#" data-page="standup" data-label="Standup" data-kicker="Team Sync"><span class="nav-icon material-symbols-rounded" aria-hidden="true">forum</span><span>Standup</span></a></li>
+      <li><a href="#" data-page="notifications" data-label="Benachrichtigungen" data-kicker="Updates"><span class="nav-icon material-symbols-rounded" aria-hidden="true">notifications</span><span>Benachrichtigungen</span></a></li>
+      <li><a href="#" data-page="sharing" data-label="Sharing" data-kicker="Freigaben"><span class="nav-icon material-symbols-rounded" aria-hidden="true">ios_share</span><span>Sharing</span></a></li>
+      </ul></details></li>
+      <li class="nav-group"><details><summary title="Auswertung und Wissen"><span class="nav-icon material-symbols-rounded" aria-hidden="true">monitoring</span><span class="nav-group-label">Auswertung &amp; Wissen</span><span class="nav-group-chevron material-symbols-rounded" aria-hidden="true">expand_more</span></summary><ul>
+      <li><a href="#" data-page="analytics" data-label="Analytics" data-kicker="Kennzahlen"><span class="nav-icon material-symbols-rounded" aria-hidden="true">monitoring</span><span>Analytics</span></a></li>
+      <li><a href="#" data-page="healthcheck" data-label="Gesundheits-Check" data-kicker="Risikoanalyse"><span class="nav-icon material-symbols-rounded" aria-hidden="true">health_and_safety</span><span>Gesundheits-Check</span></a></li>
+      <li><a href="#" data-page="documentation" data-label="Dokumentation" data-kicker="Wissensbasis"><span class="nav-icon material-symbols-rounded" aria-hidden="true">article</span><span>Dokumentation</span></a></li>
+      <li><a href="#" data-page="templates" data-label="Vorlagen" data-kicker="Standards"><span class="nav-icon material-symbols-rounded" aria-hidden="true">inventory_2</span><span>Vorlagen</span></a></li>
+      </ul></details></li>
+      <li class="nav-group"><details><summary title="Einstellungen"><span class="nav-icon material-symbols-rounded" aria-hidden="true">settings</span><span class="nav-group-label">Einstellungen</span><span class="nav-group-chevron material-symbols-rounded" aria-hidden="true">expand_more</span></summary><ul>
+      <li><a href="#" data-page="labels" data-label="Labels" data-kicker="Taxonomie"><span class="nav-icon material-symbols-rounded" aria-hidden="true">sell</span><span>Labels</span></a></li>
+      <li><a href="#" data-page="ai-conf" data-label="AI Conf" data-kicker="KI Steuerung"><span class="nav-icon material-symbols-rounded" aria-hidden="true">tune</span><span>AI Conf</span></a></li>
+      <li><a href="#" data-page="integrations" data-label="Integrationen" data-kicker="Systeme"><span class="nav-icon material-symbols-rounded" aria-hidden="true">hub</span><span>Integrationen</span></a></li>
+      </ul></details></li>
     </ul>
     <div class="sidebar-footer">
       <div class="sidebar-footer-label">Workspace</div>
@@ -528,7 +451,7 @@
       <div class="section-header">
         <div>
           <p class="section-kicker">Flow Management</p>
-          <h1>Kanban Board</h1>
+          <h1>Aufgaben Board</h1>
           <p class="section-description">Aufgabenfluss mit WIP-Kontrolle, Prioritaeten und Teamfokus.</p>
         </div>
       </div>
@@ -900,126 +823,6 @@
   <div id="modal-overlay" class="modal-overlay hidden">
     <div id="modal-content" class="modal"></div>
   </div>
-
-  <script>
-    (function () {
-      'use strict';
-
-      var gate = document.getElementById('admin-pin-gate');
-      var form = document.getElementById('admin-pin-form');
-      var input = document.getElementById('admin-pin-input');
-      var submit = document.getElementById('admin-pin-submit');
-      var error = document.getElementById('admin-pin-error');
-
-      function setLockedState(isLocked) {
-        document.body.classList.toggle('admin-pin-locked', !!isLocked);
-        document.body.classList.toggle('admin-pin-unlocked', !isLocked);
-        if (gate) gate.hidden = !isLocked;
-      }
-
-      function showError(message) {
-        if (!error) return;
-        error.textContent = message || 'PIN ungueltig oder Server nicht erreichbar.';
-        error.hidden = false;
-      }
-
-      function clearError() {
-        if (!error) return;
-        error.hidden = true;
-      }
-
-      function validatePin(pin) {
-        return fetch('/api/auth/validate', {
-          method: 'GET',
-          cache: 'no-store',
-          headers: { 'X-Admin-Pin': pin }
-        }).then(function (res) {
-          return !!res.ok;
-        }).catch(function () {
-          return false;
-        });
-      }
-
-      function refreshAfterUnlock() {
-        if (!window.DataLayer || typeof window.DataLayer.refreshFromRemote !== 'function') {
-          if (window.AppShell && typeof window.AppShell.refreshAllModules === 'function') {
-            window.AppShell.refreshAllModules();
-          }
-          return;
-        }
-
-        window.DataLayer.refreshFromRemote().then(function () {
-          if (window.AppShell && typeof window.AppShell.refreshAllModules === 'function') {
-            window.AppShell.refreshAllModules();
-          }
-        }).catch(function () {
-          if (window.AppShell && typeof window.AppShell.refreshAllModules === 'function') {
-            window.AppShell.refreshAllModules();
-          }
-        });
-      }
-
-      function unlockWithPin(pin) {
-        if (window.ProjektDashboardSecurity && typeof window.ProjektDashboardSecurity.setPin === 'function') {
-          window.ProjektDashboardSecurity.setPin(pin);
-        }
-
-        return validatePin(pin).then(function (isValid) {
-          if (!isValid) {
-            if (window.ProjektDashboardSecurity && typeof window.ProjektDashboardSecurity.clearPin === 'function') {
-              window.ProjektDashboardSecurity.clearPin();
-            }
-            return false;
-          }
-
-          setLockedState(false);
-          clearError();
-          refreshAfterUnlock();
-          return true;
-        });
-      }
-
-      if (form) {
-        form.addEventListener('submit', function (event) {
-          event.preventDefault();
-          clearError();
-
-          var pin = input ? String(input.value || '').trim() : '';
-          if (!pin) {
-            showError('Bitte PIN eingeben.');
-            return;
-          }
-
-          if (submit) submit.disabled = true;
-          unlockWithPin(pin).then(function (ok) {
-            if (!ok) {
-              showError('PIN ungueltig oder Server nicht erreichbar.');
-              if (input) input.value = '';
-              if (input && input.focus) input.focus();
-            }
-          }).finally(function () {
-            if (submit) submit.disabled = false;
-          });
-        });
-      }
-
-      var storedPin = window.ProjektDashboardSecurity && typeof window.ProjektDashboardSecurity.readPin === 'function'
-        ? window.ProjektDashboardSecurity.readPin()
-        : '';
-
-      if (storedPin) {
-        unlockWithPin(storedPin).then(function (ok) {
-          if (!ok) {
-            setLockedState(true);
-            if (input && input.focus) input.focus();
-          }
-        });
-      } else {
-        setLockedState(true);
-        if (input && input.focus) input.focus();
-      }
-    })();
-  </script>
 
 </body>
 </html>
