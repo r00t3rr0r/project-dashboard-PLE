@@ -1520,6 +1520,7 @@ body.light-mode .nav-menu li a:hover {
 .project-progress-head-main {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.55rem;
   min-width: 0;
   flex: 1;
@@ -1553,6 +1554,23 @@ body.light-mode .nav-menu li a:hover {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.project-progress-active-team,
+.project-progress-task-workers {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.22rem 0.35rem;
+  min-width: 0;
+}
+
+.project-progress-employee-names {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 0.66rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .project-progress-contact-avatar-fallback {
@@ -1593,6 +1611,16 @@ body.light-mode .nav-menu li a:hover {
   min-width: 0;
 }
 
+.project-progress-task-workers {
+  grid-column: 1 / -1;
+  font-size: 0.66rem;
+}
+
+.project-progress-task-workers .project-progress-contact-avatar {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
 .project-progress-task-title {
   min-width: 0;
   overflow: hidden;
@@ -1611,6 +1639,7 @@ body.light-mode .nav-menu li a:hover {
 }
 
 .project-progress-task-track {
+  position: relative;
   height: 0.24rem;
   overflow: hidden;
   border-radius: 999px;
@@ -1618,11 +1647,39 @@ body.light-mode .nav-menu li a:hover {
 }
 
 .project-progress-task-fill {
-  display: block;
+  position: absolute;
+  inset: 0 auto 0 0;
   width: var(--task-progress, 0%);
   height: 100%;
   border-radius: inherit;
   background: var(--progress-color, #6b9ed6);
+  overflow: hidden;
+  z-index: 1;
+}
+
+.project-progress-task-fill.is-running::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 20%, rgba(255, 255, 255, 0.78) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: project-task-progress-sweep 1.8s ease-in-out infinite;
+}
+
+.project-progress-task-today {
+  position: absolute;
+  top: 0;
+  left: var(--task-progress-start, 0%);
+  width: var(--task-progress, 0%);
+  height: 100%;
+  border-left: 1px solid rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow: 0 0 5px rgba(255, 255, 255, 0.55);
+  z-index: 2;
+}
+
+@keyframes project-task-progress-sweep {
+  to { transform: translateX(100%); }
 }
 
 .project-progress-task-fill.is-strong {
@@ -1638,11 +1695,21 @@ body.light-mode .nav-menu li a:hover {
 }
 
 .project-progress-task-value {
+  display: grid;
+  justify-items: end;
+  gap: 0.08rem;
   color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 0.66rem;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.project-progress-task-value small {
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.56rem;
+  font-weight: 500;
 }
 
 .project-progress-item .project-head-progress {
@@ -6206,6 +6273,10 @@ body.light-mode .resolution-dialog {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .project-progress-task-fill.is-running::after {
+    animation: none;
+  }
+
   body.light-mode .project-card,
   body.light-mode .kanban-card,
   body.light-mode .task-history-card,

@@ -163,27 +163,32 @@
     return ratio;
   }
 
-  function getProjectProgressEmployee(tasks) {
+  function getProjectProgressEmployees(tasks, includeHistory) {
     var employees = (window.DataLayer && typeof window.DataLayer.getEmployees === 'function' ? window.DataLayer.getEmployees() : []) || [];
     var employeesById = {};
     employees.forEach(function(employee) {
       if (employee && employee.id) employeesById[String(employee.id)] = employee;
     });
 
-    var activeTasks = (tasks || []).filter(function(task) {
-      return task && normalizeTaskStatus(task) === 'in-progress';
-    }).sort(function(a, b) {
-      return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
+    var employeeIds = [];
+    (tasks || []).forEach(function(task) {
+      if (!task) return;
+      var taskEmployeeIds = Array.isArray(task.assigneeIds) ? task.assigneeIds.slice() : [];
+      taskEmployeeIds.push(task.assigneeId, task.employeeId);
+      if (includeHistory) {
+        (Array.isArray(task.history) ? task.history : []).forEach(function(entry) {
+          if (!entry) return;
+          taskEmployeeIds.push(entry.actorId, entry.assigneeId, entry.employeeId);
+          if (Array.isArray(entry.assigneeIds)) taskEmployeeIds = taskEmployeeIds.concat(entry.assigneeIds);
+        });
+      }
+      taskEmployeeIds.forEach(function(id) {
+        var key = String(id || '').trim();
+        if (key && employeesById[key] && employeeIds.indexOf(key) === -1) employeeIds.push(key);
+      });
     });
 
-    for (var i = 0; i < activeTasks.length; i++) {
-      var assigneeId = activeTasks[i].assigneeId || activeTasks[i].employeeId;
-      if (assigneeId && employeesById[String(assigneeId)]) {
-        return employeesById[String(assigneeId)];
-      }
-    }
-
-    return null;
+    return employeeIds.map(function(id) { return employeesById[id]; });
   }
 
   function getDefaultEmployeeAvatarDataUrl(employee) {
@@ -205,13 +210,17 @@
     return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
   }
 
-  function renderProjectProgressAvatar(tasks) {
-    var employee = getProjectProgressEmployee(tasks);
-    if (!employee) return '';
-
-    var name = String(employee.name || 'Mitarbeiter').trim() || 'Mitarbeiter';
-    var avatarUrl = getEmployeeAvatarUrl(employee) || getDefaultEmployeeAvatarDataUrl(employee);
-    return '<span class="project-progress-contact-avatar" title="' + escapeHtml(name) + '"><img src="' + escapeHtml(avatarUrl) + '" alt="' + escapeHtml(name) + '" /></span>';
+  function renderProjectProgressEmployees(employees, className) {
+    if (!employees.length) return '';
+    var names = employees.map(function(employee) {
+      return String(employee.name || 'Mitarbeiter').trim() || 'Mitarbeiter';
+    });
+    var avatars = employees.map(function(employee, index) {
+      var name = names[index];
+      var avatarUrl = getEmployeeAvatarUrl(employee) || getDefaultEmployeeAvatarDataUrl(employee);
+      return '<span class="project-progress-contact-avatar" title="' + escapeHtml(name) + '"><img src="' + escapeHtml(avatarUrl) + '" alt="' + escapeHtml(name) + '" /></span>';
+    }).join('');
+    return '<span class="' + className + '" aria-label="' + escapeHtml(names.join(', ')) + '">' + avatars + '<span class="project-progress-employee-names">' + escapeHtml(names.join(', ')) + '</span></span>';
   }
 
   function getStatusLabel(project) {
@@ -1024,11 +1033,14 @@
 
         return isActive || minutesToday > 0 || changedToday || completedToday || legacyUpdatedToday;
       });
+      var activeTasks = relevantTasks.filter(function(task) {
+        return normalizeTaskStatus(task) === 'in-progress';
+      });
 
-      return { project: project, tasks: relevantTasks };
+      return { project: project, tasks: relevantTasks, activeTasks: activeTasks };
     }).filter(function(entry) {
-      return entry.tasks.some(function(task) {
-        return normalizeTaskStatus(task) === 'in-progress' && Boolean(task.assigneeId || task.employeeId);
+      return entry.activeTasks.some(function(task) {
+        return getProjectProgressEmployees([task], false).length > 0;
       });
     });
 
@@ -1046,8 +1058,9 @@
     projectEntries.forEach(function(entry) {
       var project = entry.project;
       var tasks = entry.tasks;
+      var activeTasks = entry.activeTasks;
       var percent = getProjectProgressPercent(project);
-      var activeTask = tasks.some(function(task) { return normalizeTaskStatus(task) === 'in-progress'; });
+      var activeTask = activeTasks.length > 0;
       var toneClass = percent >= 75 ? 'is-strong' : (percent >= 40 ? 'is-mid' : 'is-low');
       var stateClass = activeTask ? 'is-running' : 'is-idle';
 
@@ -1055,7 +1068,7 @@
       html += '<div class="project-progress-head">';
       html += '<div class="project-progress-head-main">';
       html += '<span class="project-progress-title">' + escapeHtml(project.title || project.name) + '</span>';
-      html += renderProjectProgressAvatar(tasks);
+      html += renderProjectProgressEmployees(getProjectProgressEmployees(activeTasks, false), 'project-progress-active-team');
       html += '</div>';
       html += '<span class="project-progress-percent">' + percent + '%</span>';
       html += '</div>';
@@ -1075,15 +1088,21 @@
         var tracking = task.timeTracking && typeof task.timeTracking === 'object' ? task.timeTracking : {};
         var minutesToday = Math.max(0, Math.round(Number(tracking.minutesByDate && tracking.minutesByDate[todayKey]) || 0));
         var taskProgress = getTaskProgressValue(task);
+        var taskProgressToday = getTaskProgressToday(task, todayKey);
+        var taskIsRunning = taskStatus === 'in-progress' && !tracking.isPaused;
         var taskToneClass = taskProgress >= 75 ? 'is-strong' : (taskProgress >= 40 ? 'is-mid' : 'is-low');
         var activityLabel = taskStatus === 'in-progress' ? 'In Arbeit' : (minutesToday ? 'Heute · ' + minutesToday + ' min' : 'Heute bearbeitet');
+        var taskEmployees = getProjectProgressEmployees([task], true);
 
         if (taskStatus === 'in-progress' && minutesToday) activityLabel += ' · ' + minutesToday + ' min heute';
         html += '<div class="project-progress-task">';
         html += '<div class="project-progress-task-head"><span class="project-progress-task-title" title="' + escapeHtml(task.title || 'Aufgabe') + '">' + escapeHtml(task.title || 'Aufgabe') + '</span>';
         html += '<span class="project-progress-task-activity">' + escapeHtml(activityLabel) + '</span></div>';
-        html += '<div class="project-progress-task-track" role="img" aria-label="Aufgabenfortschritt ' + taskProgress + '%"><span class="project-progress-task-fill ' + taskToneClass + '" style="--task-progress:' + taskProgress + '%"></span></div>';
-        html += '<span class="project-progress-task-value">' + taskProgress + '%</span>';
+        if (taskEmployees.length) html += renderProjectProgressEmployees(taskEmployees, 'project-progress-task-workers');
+        html += '<div class="project-progress-task-track" role="img" aria-label="Gesamtfortschritt ' + taskProgress + '%, heute plus ' + taskProgressToday + ' Prozentpunkte"><span class="project-progress-task-fill ' + taskToneClass + (taskIsRunning ? ' is-running' : '') + '" style="--task-progress:' + taskProgress + '%"></span>';
+        if (taskProgressToday > 0) html += '<span class="project-progress-task-today" style="--task-progress-start:' + (taskProgress - taskProgressToday) + '%;--task-progress:' + taskProgressToday + '%"></span>';
+        html += '</div>';
+        html += '<span class="project-progress-task-value"><span>' + taskProgress + '%</span><small>+' + taskProgressToday + '% heute</small></span>';
         html += '</div>';
       });
       html += '</div>';
@@ -1736,6 +1755,31 @@
     return Math.round(progress);
   }
 
+  function getTaskProgressToday(task, todayKey) {
+    var history = Array.isArray(task && task.history) ? task.history : [];
+    var firstTodayAt = Infinity;
+    history.forEach(function(entry) {
+      if (!entry || getProjectProgressDateKey(entry.at) !== todayKey) return;
+      var timestamp = new Date(entry.at).getTime();
+      if (isFinite(timestamp) && timestamp < firstTodayAt) firstTodayAt = timestamp;
+    });
+    if (!isFinite(firstTodayAt)) return 0;
+
+    var baselineEntry = null;
+    var baselineAt = -Infinity;
+    history.forEach(function(entry) {
+      if (!entry || !entry.at) return;
+      var timestamp = new Date(entry.at).getTime();
+      if (isFinite(timestamp) && timestamp < firstTodayAt && timestamp > baselineAt) {
+        baselineAt = timestamp;
+        baselineEntry = entry;
+      }
+    });
+
+    var baseline = baselineEntry ? Math.max(0, Math.min(100, Math.round(Number(baselineEntry.progress) || 0))) : 0;
+    return Math.max(0, Math.min(100 - baseline, getTaskProgressValue(task) - baseline));
+  }
+
   function normalizeTaskStatus(task) {
     var status = String(task && task.status || '').trim().toLowerCase();
     if (status === 'in progress' || status === 'in arbeit' || status === 'inarbeit') return 'in-progress';
@@ -1883,7 +1927,20 @@
 
   function getEmployeeDashboardPresenceTimestamp(employee) {
     var timestamp = Date.parse(String(employee && employee.dashboardPresenceAt || ''));
-    return isFinite(timestamp) ? timestamp : 0;
+    var todayKey = getLocalDateKey(new Date());
+    if (isFinite(timestamp) && timestamp > 0 && getLocalDateKey(new Date(timestamp)) === todayKey) {
+      return timestamp;
+    }
+
+    var dailyStatus = employee && employee.dailyWorkStatus;
+    var dailyStatusTimestamp = Date.parse(String(dailyStatus && dailyStatus.updatedAt || ''));
+    if (dailyStatus && String(dailyStatus.date || '') === todayKey &&
+        isFinite(dailyStatusTimestamp) && dailyStatusTimestamp > 0 &&
+        getLocalDateKey(new Date(dailyStatusTimestamp)) === todayKey) {
+      return dailyStatusTimestamp;
+    }
+
+    return isFinite(timestamp) && timestamp > 0 ? timestamp : 0;
   }
 
   function hasEmployeeDashboardPresenceToday(employee, todayKey) {

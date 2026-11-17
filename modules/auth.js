@@ -536,6 +536,11 @@
       }
     }
 
+    if (Object.prototype.hasOwnProperty.call(incoming, 'dashboardPresenceAt')) {
+      var dashboardPresenceAt = toIsoStringSafe(incoming.dashboardPresenceAt);
+      if (dashboardPresenceAt) next.dashboardPresenceAt = dashboardPresenceAt;
+    }
+
     if (Object.prototype.hasOwnProperty.call(incoming, 'capacityPoints')) {
       var capacity = Number(incoming.capacityPoints);
       if (isFinite(capacity)) {
@@ -601,6 +606,10 @@
     if (isOwnProfile && Object.prototype.hasOwnProperty.call(incoming, 'workplace')) {
       var workplace = String(incoming.workplace || '').trim();
       if (WORKPLACE_OPTIONS.some(function (option) { return option.value === workplace; })) next.workplace = workplace;
+    }
+    if (isOwnProfile && Object.prototype.hasOwnProperty.call(incoming, 'dashboardPresenceAt')) {
+      var dashboardPresenceAt = toIsoStringSafe(incoming.dashboardPresenceAt);
+      if (dashboardPresenceAt) next.dashboardPresenceAt = dashboardPresenceAt;
     }
     if (isOwnProfile && incoming.github && typeof incoming.github === 'object') {
       next.github = Object.assign({}, next.github || {});
@@ -1127,6 +1136,8 @@
       }
       authStateBootstrapped = true;
       authDataLoaded = true;
+      dashboardPresenceLastTouchedAt = 0;
+      touchDashboardPresence();
       return employee;
     });
   }
