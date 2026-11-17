@@ -585,8 +585,11 @@ function init(){
     
     // Listen for data changes and refresh current page's module
     if(window.DataLayer.on){
-      window.DataLayer.on('dataChanged',function(){
-        scheduleActivePageRefresh({skipProjects:true});
+      window.DataLayer.on('dataChanged',function(event){
+        var employeePageDependencies=['all','employees','projects','tasks'];
+        if(getActivePageId()!=='employees'||!event||employeePageDependencies.indexOf(event.entity)!==-1){
+          scheduleActivePageRefresh({skipProjects:true});
+        }
         updateDatabaseStatusLabel();
         updateStorageStatusLabel();
       });

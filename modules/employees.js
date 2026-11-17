@@ -13,6 +13,7 @@
   var GITHUB_ACTIVITY_TTL_MS = 6 * 60 * 60 * 1000;
   var isWired = false;
   var githubSyncRequests = {};
+  var employeeFormDrafts = Object.create(null);
 
   var FILTER_STATE = {
     search: '',
@@ -62,8 +63,10 @@
   function storageWrite(key, data) {
     try {
       localStorage.setItem(key, JSON.stringify(data));
+      return true;
     } catch (e) {
       console.warn('[' + NAMESPACE + '] Storage write failed for ' + key, e);
+      return false;
     }
   }
 
@@ -835,16 +838,17 @@
 
   function syncPermissionEditorForAccessLevel(accessLevel, root) {
     if (!root) return;
-    var managementPages = ['dashboard', 'projects', 'meeting', 'tasks', 'kanban', 'calendar', 'analytics', 'employees'];
-    var isRestricted = accessLevel === 'admin' || accessLevel === 'management';
+    var isAdminLevel = accessLevel === 'admin';
+    var isRestricted = isAdminLevel || !canManageEmployeeAccessFields();
     var permissionPanel = root.querySelector('.employee-permission-panel');
-    if (permissionPanel) permissionPanel.open = accessLevel === 'employee';
+    if (permissionPanel) permissionPanel.open = accessLevel === 'employee' || (accessLevel === 'management' && canManageEmployeeAccessFields());
 
     var inputs = root.querySelectorAll('input[data-field="page-permission"]');
+    var allPages = isAdminLevel && getAuthManager() && typeof getAuthManager().getPageOptions === 'function'
+      ? getAuthManager().getPageOptions().map(function(option) { return option.value; })
+      : [];
     inputs.forEach(function(input) {
-      if (accessLevel === 'management') {
-        input.checked = managementPages.indexOf(input.getAttribute('data-page')) !== -1;
-      }
+      if (isAdminLevel) input.checked = allPages.indexOf(input.getAttribute('data-page')) !== -1;
       input.disabled = isRestricted;
     });
 
@@ -855,6 +859,47 @@
     var badge = root.querySelector('.employee-permission-summary-badge');
     if (summary) summary.textContent = buildPermissionSummary(selectedPages);
     if (badge) badge.textContent = String(selectedPages.length);
+  }
+
+  function getEmployeeDraftAddress(input) {
+    if (!input || !input.dataset || input.dataset.field === 'availability') return null;
+    var employeeId = input.dataset.empId || input.dataset.scope || '';
+    if (!employeeId || employeeId === 'new-employee') return null;
+    var field = input.dataset.field || '';
+    if (!field) return null;
+    if (field === 'page-permission') field += ':' + (input.dataset.page || '');
+    return { employeeId: employeeId, field: field };
+  }
+
+  function captureEmployeeDraft(input) {
+    var address = getEmployeeDraftAddress(input);
+    if (!address) return;
+    if (!employeeFormDrafts[address.employeeId]) employeeFormDrafts[address.employeeId] = Object.create(null);
+    employeeFormDrafts[address.employeeId][address.field] = input.type === 'checkbox' ? !!input.checked : input.value;
+  }
+
+  function restoreEmployeeDrafts(container) {
+    container.querySelectorAll('[data-field]').forEach(function(input) {
+      var address = getEmployeeDraftAddress(input);
+      if (!address) return;
+      var drafts = employeeFormDrafts[address.employeeId];
+      if (!drafts || !Object.prototype.hasOwnProperty.call(drafts, address.field)) return;
+      var value = drafts[address.field];
+      if (input.type === 'checkbox') input.checked = !!value;
+      else input.value = value;
+
+      if (input.dataset.field === 'access-level') {
+        syncPermissionEditorForAccessLevel(input.value, input.closest('.employee-auth-card'));
+      }
+      if (input.dataset.field === 'capacity') {
+        var output = document.getElementById('employee-capacity-output-' + input.dataset.empId);
+        if (output) output.textContent = input.value;
+      }
+    });
+  }
+
+  function clearEmployeeDraft(employeeId) {
+    delete employeeFormDrafts[employeeId];
   }
 
   function buildAuthStatusPill(label, tone) {
@@ -905,21 +950,20 @@
   }
 
   function persistEmployee(employee) {
-    if (!employee || !employee.id) return;
+    if (!employee || !employee.id) return false;
     var normalized = normalizeEmployee(employee);
 
     if (hasDataLayer()) {
       var existing = (window.DataLayer.getEmployees() || []).find(function(item) { return item.id === normalized.id; });
-      if (!existing) return;
-      window.DataLayer.updateEmployee(normalized);
-      return;
+      if (!existing) return false;
+      return window.DataLayer.updateEmployee(normalized);
     }
 
     var all = getEmployees();
     var idx = all.findIndex(function(item) { return item.id === normalized.id; });
     if (idx === -1) return;
     all[idx] = normalized;
-    storageWrite(LEGACY_EMPLOYEE_KEY, all);
+    return storageWrite(LEGACY_EMPLOYEE_KEY, all);
   }
 
   function getAssignments() {
@@ -1394,7 +1438,7 @@
             '<input type="password" data-field="login-password" data-emp-id="' + escapeHtml(emp.id) + '" value="" placeholder="' + escapeHtml(access.login.passwordHash ? 'Neues Passwort setzen' : 'Passwort setzen') + '" autocomplete="new-password"' + privateProfileDisabledAttr + '>' +
           '</label>' +
           '</div>' +
-          '<div class="employee-permission-editor">' + buildPermissionEditorHtml(emp.id, access.permissions.pages || [], access.accessLevel !== 'employee' || !canManageAccess, false) + '</div>' +
+          '<div class="employee-permission-editor">' + buildPermissionEditorHtml(emp.id, access.permissions.pages || [], !canManageAccess, false) + '</div>' +
         '</div>' +
 
         '<label class="employee-form-field">Kapazitaet (Story-Points)' +
@@ -1425,6 +1469,7 @@
     }).join('');
 
     container.innerHTML = html;
+    restoreEmployeeDrafts(container);
   }
 
   function createNotification(message) {
@@ -1519,12 +1564,12 @@
   }
 
   function updateEmployeeProfile(employeeId, patch) {
-    if (!employeeId) return;
-    if (!ensureCanEditEmployeeProfile(employeeId)) return;
+    if (!employeeId) return false;
+    if (!ensureCanEditEmployeeProfile(employeeId)) return false;
 
     var employees = getEmployees();
     var target = employees.find(function(emp) { return emp.id === employeeId; });
-    if (!target) return;
+    if (!target) return false;
     var adminMode = canManageEmployees();
 
     if (patch && Object.prototype.hasOwnProperty.call(patch, 'currentActivity')) {
@@ -1568,7 +1613,7 @@
     }
 
     target.updatedAt = new Date().toISOString();
-    persistEmployee(target);
+    return persistEmployee(target) !== false;
   }
 
   function removeEmployee(employeeId) {
@@ -2184,6 +2229,7 @@
     page.addEventListener('input', function(event) {
       var target = event.target;
       if (!target || !target.dataset) return;
+      captureEmployeeDraft(target);
 
       if (target.dataset.field === 'capacity') {
         var output = document.getElementById('employee-capacity-output-' + target.dataset.empId);
@@ -2194,6 +2240,7 @@
     page.addEventListener('change', function(event) {
       var target = event.target;
       if (!target || !target.dataset) return;
+      captureEmployeeDraft(target);
 
       if (target.dataset.field === 'availability') {
         updateAvailability(target.dataset.empId, target.value);
@@ -2204,7 +2251,12 @@
       if (target.dataset.field === 'access-level') {
         var panel = target.closest('.employee-auth-card');
         if (!panel) return;
-        syncPermissionEditorForAccessLevel(target.value, panel);
+        var accessLevel = target.value;
+        window.setTimeout(function() {
+          if (target.isConnected && target.value === accessLevel) {
+            syncPermissionEditorForAccessLevel(accessLevel, panel);
+          }
+        }, 0);
       }
     });
 
@@ -2315,7 +2367,7 @@
         }).filter(Boolean);
 
         var finalizeSave = function(authData) {
-          updateEmployeeProfile(empId, {
+          var updated = updateEmployeeProfile(empId, {
             currentActivity: activityInput ? activityInput.value : '',
             focusAreas: focusInput ? focusInput.value.split(',').map(function(item) { return item.trim(); }).filter(Boolean) : [],
             capacityPoints: capacityInput ? capacityInput.value : 8,
@@ -2326,8 +2378,26 @@
             auth: authData || undefined
           });
 
-          createNotification('Mitarbeiterprofil wurde aktualisiert.');
-          renderEmployeeList('employee-list');
+          if (!updated) {
+            alert('Mitarbeiterkonfiguration konnte nicht gespeichert werden. Bitte Berechtigung und Verbindung prüfen.');
+            return;
+          }
+
+          var savePromise = window.DataLayer && typeof window.DataLayer.waitForEmployeeSave === 'function'
+            ? window.DataLayer.waitForEmployeeSave()
+            : Promise.resolve(true);
+          savePromise.then(function(saved) {
+            if (!saved) {
+              alert('Mitarbeiterkonfiguration konnte nicht dauerhaft gespeichert werden. Bitte Verbindung prüfen und erneut versuchen.');
+              return;
+            }
+
+            clearEmployeeDraft(empId);
+            createNotification('Mitarbeiterprofil wurde aktualisiert.');
+            renderEmployeeList('employee-list');
+          }).catch(function() {
+            alert('Mitarbeiterkonfiguration konnte nicht dauerhaft gespeichert werden. Bitte Verbindung prüfen und erneut versuchen.');
+          });
         };
 
         var authManager = getAuthManager();

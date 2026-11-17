@@ -301,11 +301,14 @@
     var accessLevel = auth.accessLevel === 'admin' || auth.accessLevel === 'management' ? auth.accessLevel : 'employee';
     var username = normalizeUsername(login.username, copy.name || 'mitarbeiter');
     var passwordHash = typeof login.passwordHash === 'string' ? login.passwordHash.trim() : '';
+    var configuredPages = normalizePageList(permissions.pages);
     var pages = accessLevel === 'admin'
       ? ALL_PAGES.slice()
-      : accessLevel === 'management'
-        ? MANAGEMENT_PAGES.slice()
-        : normalizePageList(permissions.pages && permissions.pages.length ? permissions.pages : EMPLOYEE_DEFAULT_PAGES);
+      : configuredPages.length
+        ? configuredPages
+        : accessLevel === 'management'
+          ? MANAGEMENT_PAGES.slice()
+          : EMPLOYEE_DEFAULT_PAGES.slice();
     if (accessLevel !== 'admin' && pages.indexOf('employees') === -1) pages.push('employees');
 
     copy.auth = {
@@ -432,12 +435,12 @@
   function getVisiblePages() {
     var mode = getMode();
     if (mode === 'setup' || mode === 'admin') return ALL_PAGES.slice();
-    if (mode === 'management') return MANAGEMENT_PAGES.slice();
-    if (mode === 'employee') {
+    if (mode === 'management' || mode === 'employee') {
       var user = getCurrentUser();
       var pages = user && user.auth && user.auth.permissions ? user.auth.permissions.pages : [];
       var visible = normalizePageList((pages || []).concat(['dashboard']));
-      return visible.length ? visible : EMPLOYEE_DEFAULT_PAGES.slice();
+      if (visible.length) return visible;
+      return mode === 'management' ? MANAGEMENT_PAGES.slice() : EMPLOYEE_DEFAULT_PAGES.slice();
     }
     return GUEST_PAGES.slice();
   }
@@ -1091,7 +1094,8 @@
     if (next.accessLevel === 'admin') {
       next.permissions.pages = ALL_PAGES.slice();
     } else if (next.accessLevel === 'management') {
-      next.permissions.pages = MANAGEMENT_PAGES.slice();
+      next.permissions.pages = normalizePageList(input.pages && input.pages.length ? input.pages : MANAGEMENT_PAGES);
+      if (!next.permissions.pages.length) next.permissions.pages = MANAGEMENT_PAGES.slice();
     } else {
       next.permissions.pages = normalizePageList(input.pages && input.pages.length ? input.pages : EMPLOYEE_DEFAULT_PAGES);
       if (!next.permissions.pages.length) next.permissions.pages = EMPLOYEE_DEFAULT_PAGES.slice();

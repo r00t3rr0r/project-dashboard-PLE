@@ -3993,6 +3993,12 @@ body.light-mode .kanban-pill-chain .material-symbols-rounded {
   gap: 1rem;
 }
 
+.employee-grid {
+  min-width: 0;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  align-items: start;
+}
+
 .employee-card-frame,
 .template-card-frame {
   padding: 1.1rem;
@@ -4145,7 +4151,7 @@ body.light-mode .kanban-pill-chain .material-symbols-rounded {
 
 .employee-workspace {
   display: grid;
-  grid-template-columns: 1.8fr minmax(270px, 0.95fr);
+  grid-template-columns: minmax(0, 1.8fr) minmax(270px, 0.95fr);
   gap: 1rem;
 }
 
@@ -4158,7 +4164,43 @@ body.light-mode .kanban-pill-chain .material-symbols-rounded {
   border-radius: 1rem;
   background: linear-gradient(170deg, rgba(35, 47, 81, 0.82), rgba(23, 32, 56, 0.9));
   width: 100%;
+  min-width: 0;
   max-width: 100%;
+}
+
+.employee-card-head {
+  flex-wrap: wrap;
+}
+
+.employee-name,
+.employee-auth-copy,
+.employee-permission-summary-copy,
+.employee-task-title,
+.employee-task-sub,
+.employee-github-subtitle {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.employee-auth-top,
+.employee-actions {
+  flex-wrap: wrap;
+}
+
+.employee-auth-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+
+.employee-form-field,
+.employee-form-field input,
+.employee-form-field select,
+.employee-capacity-row input {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.employee-actions > * {
+  min-width: 0;
 }
 
 body.light-mode .employee-work-card {
@@ -4667,7 +4709,7 @@ body.light-mode .employee-distribution-donut {
 
 @media (max-width: 1300px) {
   .employee-workspace {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .employee-insights {

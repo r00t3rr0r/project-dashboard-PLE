@@ -276,9 +276,11 @@ function readActiveProjectId(){
 }
 
 function writeActiveProjectId(projectId){
+  var nextProjectId=String(projectId||'');
+  if(readActiveProjectId()===nextProjectId)return;
   try{
-    if(projectId){
-      window.localStorage.setItem(ACTIVE_PROJECT_KEY,projectId);
+    if(nextProjectId){
+      window.localStorage.setItem(ACTIVE_PROJECT_KEY,nextProjectId);
     }else{
       window.localStorage.removeItem(ACTIVE_PROJECT_KEY);
     }

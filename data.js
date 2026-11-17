@@ -32,6 +32,7 @@
   var db = null;
   var dbReadyPromise = null;
   var AUTH_SESSION_KEYS = ['pd_auth_session_v1', 'pd_auth_session_persist_v1'];
+  var pendingStorageWrites = Object.create(null);
 
   function isAuthSessionKey(key) {
     var normalizedKey = normalizeStorageKey(key);
@@ -423,11 +424,13 @@
 
     if (REMOTE_ONLY_MODE) {
       beginLocalWrite();
-      persistRemoteValueAsync(normalizedKey, normalizedValue).then(function (remoteOk) {
+      var remoteWrite = persistRemoteValueAsync(normalizedKey, normalizedValue).then(function (remoteOk) {
         if (remoteOk) clearDirtyKeyForRemoteSync(normalizedKey);
+        return !!remoteOk;
       }).finally(function () {
         endLocalWrite();
       });
+      trackStorageWrite(normalizedKey, remoteWrite);
       return true;
     }
 
@@ -437,12 +440,30 @@
       else nativeStorageApi.setItem(normalizedKey, localPersistValue);
     } catch (_e) {}
     beginLocalWrite();
-    ensureDatabaseReady().then(function () {
+    var localWrite = ensureDatabaseReady().then(function () {
       return persistValueAsync(normalizedKey, normalizedValue);
     }).finally(function () {
       endLocalWrite();
     });
+    trackStorageWrite(normalizedKey, localWrite);
     return true;
+  }
+
+  function trackStorageWrite(key, writePromise) {
+    var tracked = Promise.resolve(writePromise).then(function (saved) {
+      return !!saved;
+    }, function () {
+      return false;
+    });
+    pendingStorageWrites[key] = tracked;
+    tracked.then(function () {
+      if (pendingStorageWrites[key] === tracked) delete pendingStorageWrites[key];
+    });
+  }
+
+  function waitForEmployeeSave() {
+    var pending = pendingStorageWrites[KEYS.employees];
+    return pending || Promise.resolve(!dirtyRemoteSyncKeys[KEYS.employees]);
   }
 
   function removeStorageValue(key) {
@@ -677,6 +698,21 @@
     return parts.join('\n');
   }
 
+  function getChangedStorageEntities(previousStorage, nextStorage) {
+    var keys = Object.create(null);
+    var entities = [];
+    Object.keys(previousStorage || {}).forEach(function (key) { keys[key] = true; });
+    Object.keys(nextStorage || {}).forEach(function (key) { keys[key] = true; });
+
+    Object.keys(keys).forEach(function (key) {
+      if (previousStorage[key] === nextStorage[key]) return;
+      var entity = entityForStorageKey(key);
+      if (entities.indexOf(entity) === -1) entities.push(entity);
+    });
+
+    return entities;
+  }
+
   function applyRemoteSnapshotPayload(payload) {
     var nextStorage = Object.create(null);
     var currentStorage = memoryStorage;
@@ -704,12 +740,13 @@
 
     var nextFingerprint = createStorageFingerprint(nextStorage);
     var changed = previousFingerprint !== nextFingerprint;
-    if (!changed) return false;
+    if (!changed) return [];
+    var changedEntities = getChangedStorageEntities(currentStorage, nextStorage);
 
     memoryStorage = nextStorage;
 
     if (REMOTE_ONLY_MODE) {
-      return true;
+      return changedEntities;
     }
 
     listNativeManagedKeys().forEach(function (key) {
@@ -727,15 +764,16 @@
     });
 
     rebuildLocalDatabaseFromMemory();
-    return true;
+    return changedEntities;
   }
 
   function entityForStorageKey(key) {
+    if (String(key || '').indexOf('EmployeeManager_') === 0) return 'employees';
     var names = Object.keys(KEYS);
     for (var index = 0; index < names.length; index++) {
       if (KEYS[names[index]] === key) return names[index];
     }
-    return 'all';
+    return 'storage';
   }
 
   function hydrateCollectionForKey(key) {
@@ -808,10 +846,11 @@
       }
 
       var payload = result.payload;
-      var changed = applyRemoteSnapshotPayload(payload);
+      var changedEntities = applyRemoteSnapshotPayload(payload);
+      var changed = changedEntities.length > 0;
       remoteKvReachable = true;
       emitStorageStatusChanged();
-      return { ok: true, changed: changed, authRequired: false };
+      return { ok: true, changed: changed, changedEntities: changedEntities, authRequired: false };
     }).catch(function () {
       remoteKvReachable = false;
       remoteKvLastCheckedAt = new Date().toISOString();
@@ -876,8 +915,13 @@
     return loadRemoteSnapshot().then(function (snapshotResult) {
       if (!snapshotResult || !snapshotResult.ok) return false;
       if (!snapshotResult.changed) return false;
-      hydrateCollections();
-      emitDataChanged('hydrate', 'all');
+      var changedEntities = snapshotResult.changedEntities || ['all'];
+      if (changedEntities.some(function (entity) { return entity !== 'storage'; })) {
+        hydrateCollections();
+      }
+      changedEntities.forEach(function (entity) {
+        emitDataChanged('hydrate', entity);
+      });
       return true;
     });
   }
@@ -3156,6 +3200,7 @@
     getEmployeeById:  getEmployeeById,
     updateEmployee:   updateEmployee,
     deleteEmployee:   deleteEmployee,
+    waitForEmployeeSave: waitForEmployeeSave,
 
     // Labels CRUD
     getLabels:      getLabels,
