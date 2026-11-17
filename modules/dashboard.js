@@ -1099,7 +1099,7 @@
         html += '<div class="project-progress-task-head"><span class="project-progress-task-title" title="' + escapeHtml(task.title || 'Aufgabe') + '">' + escapeHtml(task.title || 'Aufgabe') + '</span>';
         html += '<span class="project-progress-task-activity">' + escapeHtml(activityLabel) + '</span></div>';
         if (taskEmployees.length) html += renderProjectProgressEmployees(taskEmployees, 'project-progress-task-workers');
-        html += '<div class="project-progress-task-track" role="img" aria-label="Gesamtfortschritt ' + taskProgress + '%, heute plus ' + taskProgressToday + ' Prozentpunkte"><span class="project-progress-task-fill ' + taskToneClass + (taskIsRunning ? ' is-running' : '') + '" style="--task-progress:' + taskProgress + '%"></span>';
+        html += '<div class="project-progress-task-track' + (taskIsRunning ? ' is-running' : '') + (taskProgress === 0 ? ' is-empty' : '') + '" role="img" aria-label="Gesamtfortschritt ' + taskProgress + '%, heute plus ' + taskProgressToday + ' Prozentpunkte"><span class="project-progress-task-fill ' + taskToneClass + (taskIsRunning ? ' is-running' : '') + '" style="--task-progress:' + taskProgress + '%"></span>';
         if (taskProgressToday > 0) html += '<span class="project-progress-task-today" style="--task-progress-start:' + (taskProgress - taskProgressToday) + '%;--task-progress:' + taskProgressToday + '%"></span>';
         html += '</div>';
         html += '<span class="project-progress-task-value"><span>' + taskProgress + '%</span><small>+' + taskProgressToday + '% heute</small></span>';

@@ -1666,6 +1666,17 @@ body.light-mode .nav-menu li a:hover {
   animation: project-task-progress-sweep 1.8s ease-in-out infinite;
 }
 
+.project-progress-task-track.is-running.is-empty::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 22%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.82), transparent);
+  animation: project-task-progress-track-sweep 1.8s ease-in-out infinite;
+  z-index: 2;
+}
+
 .project-progress-task-today {
   position: absolute;
   top: 0;
@@ -1680,6 +1691,11 @@ body.light-mode .nav-menu li a:hover {
 
 @keyframes project-task-progress-sweep {
   to { transform: translateX(100%); }
+}
+
+@keyframes project-task-progress-track-sweep {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(460%); }
 }
 
 .project-progress-task-fill.is-strong {
@@ -6273,7 +6289,8 @@ body.light-mode .resolution-dialog {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .project-progress-task-fill.is-running::after {
+  .project-progress-task-fill.is-running::after,
+  .project-progress-task-track.is-running.is-empty::after {
     animation: none;
   }
 
