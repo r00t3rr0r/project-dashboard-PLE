@@ -389,8 +389,9 @@ function buildLabelOptions(labels){
 }
 
 /* ---------- Modal-Popup (Bestandteil) ---------- */
-function openQuickTaskModal(){
+function openQuickTaskModal(prefill){
   try{
+    prefill=prefill&&typeof prefill==='object'?prefill:{};
     var auth=getAuthManager();
     if(auth&&typeof auth.canCreateTask==='function'&&!auth.canCreateTask()){
       alert('QuickTask ist nur fuer angemeldete Mitarbeiter freigeschaltet.');
@@ -449,7 +450,15 @@ function openQuickTaskModal(){
       '</section></div>' +
       '<div class="modal-actions">' +
       '<button class="btn btn-secondary" id="qt-cancel">Abbrechen</button>' +
-      '<button class="btn btn-primary" id="qt-submit">Erstellen</button></div>';
+      '<button class="btn btn-primary" id="qt-submit">'+escapeHtml(prefill.submitLabel||'Erstellen')+'</button></div>';
+
+    var initialTask=prefill.task&&typeof prefill.task==='object'?prefill.task:{};
+    document.getElementById('qtm-title').value=String(initialTask.title||'');
+    document.getElementById('qtm-desc').value=String(initialTask.description||'');
+    document.getElementById('qtm-prio').value=String(initialTask.priority||'medium');
+    document.getElementById('qtm-effort').value=String(initialTask.effortHours===undefined?'0':initialTask.effortHours);
+    if(initialTask.projectId)document.getElementById('qtm-project').value=String(initialTask.projectId);
+    if(Array.isArray(prefill.subtasks))document.getElementById('qtm-subtasks').value=prefill.subtasks.map(function(subtask){return String(subtask&&subtask.title||subtask||'');}).filter(Boolean).join('\n');
 
     var aiState={loading:false,draft:null,suggestions:[]};
     var githubDraftCommits=[];
@@ -997,8 +1006,11 @@ function openQuickTaskModal(){
         subtasksText:document.getElementById('qtm-subtasks').value,
         noteText:document.getElementById('qtm-note').value,
         attachmentsText:document.getElementById('qtm-attachments').value,
-        status:'backlog'
+        status:initialTask.status||'backlog'
       });
+      if(initialTask.status==='done')payload.progress=100;
+      if(prefill.completedSubtasks)payload.subtasks.forEach(function(subtask){subtask.completed=true;});
+      if(prefill.taskMetadata&&typeof prefill.taskMetadata==='object')Object.assign(payload,prefill.taskMetadata);
       if(githubDraftCommits.length){
         payload.sourceCommitShas=githubDraftCommits.map(function(commit){return commit.sha;});
         payload.externalSource='github';
@@ -1012,8 +1024,9 @@ function openQuickTaskModal(){
       });
       uploadPendingFiles().then(function(){
         payload.attachments=payload.attachments.concat(pendingFiles.map(function(entry){return entry.attachment;}));
-        window.DataLayer.createTask(payload);
+        var createdTask=window.DataLayer.createTask(payload);
         closeSharedModal();
+        if(typeof prefill.onCreated==='function')prefill.onCreated(createdTask);
       }).catch(function(error){
         controls.forEach(function(item){item.control.disabled=item.wasDisabled;});
         document.getElementById('qtm-upload-status').textContent='Dateiupload fehlgeschlagen: '+String(error&&error.message||error);

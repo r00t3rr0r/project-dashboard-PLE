@@ -577,6 +577,7 @@ function init(){
     setupNavigation();
     setupThemeToggle();
     setupExportImport();
+    writeSidebarExpandedState(true);
     setupMobileMenu();
     setupProjectControlActions();
     updatePageMeta((location.hash||'').replace(/^#page=/,'')||'dashboard');
@@ -586,6 +587,10 @@ function init(){
     // Listen for data changes and refresh current page's module
     if(window.DataLayer.on){
       window.DataLayer.on('dataChanged',function(event){
+        var dashboardProgressDependencies=['all','employees','projects','tasks'];
+        if(event&&dashboardProgressDependencies.indexOf(event.entity)!==-1&&window.DashboardManager&&typeof window.DashboardManager.renderProjectProgress==='function'){
+          window.DashboardManager.renderProjectProgress();
+        }
         var employeePageDependencies=['all','employees','projects','tasks'];
         if(getActivePageId()!=='employees'||!event||employeePageDependencies.indexOf(event.entity)!==-1){
           scheduleActivePageRefresh({skipProjects:true});

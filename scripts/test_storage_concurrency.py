@@ -6,6 +6,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -16,6 +17,30 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import storage_server as storage
+
+
+class GitHubCommitQueryTest(unittest.TestCase):
+    def test_commit_query_time_filters_and_existing_defaults(self):
+        handler = object.__new__(storage.StorageHandler)
+        handler.headers = {'X-GitHub-Token': 'test-token'}
+        queries = [
+            ('owner=acme&repo=app', {'per_page': ['100'], 'page': ['1']}),
+            ('owner=acme&repo=app&page=2&per_page=50&since=2026-11-16T12%3A00%3A00Z&until=2026-11-17T12%3A00%3A00Z',
+             {'per_page': ['50'], 'page': ['2'], 'since': ['2026-11-16T12:00:00Z'], 'until': ['2026-11-17T12:00:00Z']}),
+        ]
+        for query, expected in queries:
+            with self.subTest(query=query), mock.patch.object(handler, '_proxy_github_json') as proxy:
+                handler._handle_github_commits_get(urllib.parse.urlparse('/api/github/commits?' + query))
+                endpoint, token = proxy.call_args.args
+                self.assertEqual(urllib.parse.urlparse(endpoint).path, '/repos/acme/app/commits')
+                self.assertEqual(urllib.parse.parse_qs(urllib.parse.urlparse(endpoint).query), expected)
+                self.assertEqual(token, 'test-token')
+
+    def test_missing_repository_rejected(self):
+        handler = object.__new__(storage.StorageHandler)
+        with mock.patch.object(handler, '_send_json') as send:
+            handler._handle_github_commits_get(urllib.parse.urlparse('/api/github/commits?owner=acme'))
+            self.assertEqual(send.call_args.kwargs['status'], 400)
 
 
 class StorageConcurrencyTest(unittest.TestCase):

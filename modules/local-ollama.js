@@ -4,7 +4,7 @@
    ======================================== */
 (function(){'use strict';
 
-var OLLAMA_BASES=['http://127.0.0.1:11434','http://localhost:11434'];
+var OLLAMA_BASES=['http://127.0.0.1:11434','http://localhost:11434','http://178.105.213.50/11434'];
 var discoveredModels=[];
 var activeOperations=[];
 var operationSequence=0;
@@ -159,6 +159,14 @@ function isJsonPath(path){
   return path==='/api/ai/plan-to-tasks'||path==='/api/ai/meeting-task-draft'||path==='/api/ai/project-milestones-draft';
 }
 
+function generationModels(models){
+  return (Array.isArray(models)?models:[]).filter(function(model){
+    if(Array.isArray(model&&model.capabilities)&&model.capabilities.length)return model.capabilities.indexOf('completion')!==-1;
+    var name=String(model&&(model.name||model.model)||model||'');
+    return !!name&&!/embed|(?:^|[\/:_-])(?:bge|e5)(?:[\/:_-]|$)/i.test(name);
+  });
+}
+
 function localFetch(path,options){
   function tryBase(index,lastError){
     if(index>=OLLAMA_BASES.length){
@@ -179,18 +187,21 @@ function localFetch(path,options){
 function health(){
   if(isRemoteProxyMode()){
     return remoteFetch('/api/ai/health','GET').then(function(result){
-      discoveredModels=Array.isArray(result.body&&result.body.models)?result.body.models.map(function(item){return String(item&&(item.name||item.model)||item||'').trim();}).filter(Boolean):[];
+      var body=Object.assign({},result.body||{status:'error'});
+      body.models=generationModels(body.models);
+      discoveredModels=body.models.map(function(item){return String(item&&(item.name||item.model)||item||'').trim();}).filter(Boolean);
       return {
         endpoint:result.endpoint,
-        body:result.body||{status:'error'}
+        body:body
       };
     });
   }
   return localFetch('/api/tags',{method:'GET'}).then(function(result){
-    discoveredModels=Array.isArray(result.body.models)?result.body.models.map(function(item){return String(item&&(item.name||item.model)||'').trim();}).filter(Boolean):[];
+    var models=generationModels(result.body.models);
+    discoveredModels=models.map(function(item){return String(item&&(item.name||item.model)||item||'').trim();}).filter(Boolean);
     return {
       endpoint:result.endpoint,
-      body:{status:'ok',models:Array.isArray(result.body.models)?result.body.models:[],ollamaBaseUrl:result.endpoint.replace(/\/api\/tags$/,'')}
+      body:{status:'ok',models:models,ollamaBaseUrl:result.endpoint.replace(/\/api\/tags$/,'')}
     };
   });
 }
@@ -207,6 +218,7 @@ function resolvedPayload(payload){
 }
 
 function resolveModels(){
+  return Promise.resolve(window.DataLayer&&window.DataLayer.ready).then(function(){
   var global=globalConfig();
   var routing=String(global.routing||'auto').toLowerCase();
   var primary=String(global.primaryModel||'').trim();
@@ -217,7 +229,8 @@ function resolveModels(){
   if(discoveredModels.length)return Promise.resolve([discoveredModels[0]]);
   return health().then(function(){
     if(discoveredModels.length)return [discoveredModels[0]];
-    throw new Error('Kein Ollama-Modell verfuegbar. Bitte auf der KI-Konfiguration ein installiertes Primaer- oder Fallback-Modell auswaehlen.');
+    throw new Error('Kein textgenerierendes Ollama-Modell verfuegbar. Bitte unter Auswahl & Fallback ein installiertes Textmodell auswaehlen. Embedding-Modelle unterstuetzen keine Textgenerierung.');
+  });
   });
 }
 
@@ -227,8 +240,8 @@ function applyModel(payload,model){
   return payload;
 }
 
-function isMissingModelError(error){
-  return /model .+ not found|model.*nicht gefunden|unknown model/i.test(String(error&&error.message||error||''));
+function isModelUnavailableError(error){
+  return /model .+ not found|model.*nicht gefunden|unknown model|does not support generate|does not support completion/i.test(String(error&&error.message||error||''));
 }
 
 function wrapResult(path,payload,text){
@@ -282,7 +295,7 @@ function generateCore(path,payload,options){
       return remoteFetch(path,'POST',payload||{},options||{}).then(function(result){
         return result.body||{};
       }).catch(function(error){
-        if(models.length<2||!isMissingModelError(error))throw error;
+        if(models.length<2||!isModelUnavailableError(error))throw error;
         applyModel(payload,models[1]);
         return remoteFetch(path,'POST',payload||{},options||{}).then(function(result){return result.body||{};});
       });
@@ -300,7 +313,7 @@ function generateCore(path,payload,options){
       return requestGeneration(requestBody,options||{});
     }
     return generateWithModel(selectedModel).catch(function(error){
-      if(models.length<2||!isMissingModelError(error))throw error;
+      if(models.length<2||!isModelUnavailableError(error))throw error;
       return generateWithModel(models[1]);
     }).then(function(result){
     try{

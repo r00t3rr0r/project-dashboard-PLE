@@ -253,3 +253,50 @@ Parameter:
 - `owner` (required)
 - `repo` (required)
 - `per_page` (optional, 1..100)
+- `page` (optional, ab 1)
+- `since`, `until` (optional, ISO-8601-Zeitstempel; werden an GitHub weitergegeben)
+
+### Erledigte Aufgaben aus GitHub (AI Conf)
+
+Im operativen Assistenten ein mit GitHub verknuepftes Projekt auswaehlen und
+"Erledigte Aufgaben aus GitHub" starten. Der Assistent laedt alle Seiten der
+Commits des Standardbranches fuer die letzten 24 Stunden, mit festem Start- und
+Endzeitpunkt. Private Repositories verwenden den GitHub-Token des angemeldeten
+Mitarbeiters; der Token wird nicht an die KI gesendet.
+
+Ollama formuliert einen deutschen Teilaufgabentitel je Commit. Bei fehlender,
+leerer oder nicht eindeutig zuordenbarer Uebersetzung wird die erste Zeile der
+Originalnachricht (z.B. Englisch) verwendet. Das gilt auch bei fehlgeschlagener
+KI-Uebersetzung; ein bewusster Abbruch stoppt den Vorgang weiterhin. Erst nach
+Pruefung und Auswahl in der Vorschau oeffnet sich der vorausgefuellte Dialog
+"Neue Aufgabe". Aufgabe und Teilaufgaben lassen sich dort vor dem Speichern
+bearbeiten. Erst beim Speichern wird die Projektaufgabe mit `status: done`,
+`progress: 100` und erledigten Teilaufgaben (`completed: true`) angelegt. Die
+Beschreibung enthaelt Originalnachrichten, SHA, Autor, Zeitpunkt und GitHub-Link.
+Commits dokumentieren Aenderungen, nicht automatisch erfolgreiche Tests oder Abnahmen.
+
+`task.githubCommitImport` speichert `repository`, `since`, `until` und `shas`.
+Bereits ueber diese Funktion importierte SHAs werden fuer dasselbe Projekt und
+Repository beim Abruf und vor der Uebernahme ausgefiltert. Das ist kein
+serverseitiger Eindeutigkeitsschutz gegen gleichzeitige Importe mehrerer Nutzer.
+
+Regressionstests: `node --test scripts/test_ai_conf_commits.js` und
+`python3 -m unittest scripts.test_storage_concurrency.GitHubCommitQueryTest`.
+Nach Serveraenderungen den Storage-Server neu starten.
+
+### Ollama-Modellrouting
+
+"Auswahl & Fallback" wird als JSON im zentralen Key `pd_ai_configuration`
+gespeichert. Der Client wartet auf `DataLayer.ready`, bevor er die Modellauswahl
+liest, und sendet das ausgewaehlte Modell sowohl in `model` als auch in
+`promptConfig.model` an den Server. Die Server-Endpunkte verwenden diese Auswahl.
+Der Modus `fixed` erzwingt ausschliesslich das Primaermodell; die anderen Modi
+duerfen das konfigurierte Fallback verwenden, wenn das Primaermodell fehlt oder
+keine Textgenerierung unterstuetzt.
+
+Die automatische Auswahl und die Modell-Selects schliessen reine Embedding-Modelle
+aus (Ollama-Capabilities, bei aelteren Metadaten bekannte Embedding-Modellnamen).
+Ein alter Speicherwert `[object Object]` enthaelt keine rekonstruierbaren
+Modellnamen: Auswahl nach dem Update einmal erneut waehlen und speichern.
+
+Regressionstests: `node --test scripts/test_local_ollama.js scripts/test_ai_conf_commits.js`.

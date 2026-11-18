@@ -1958,7 +1958,12 @@ class StorageHandler(BaseHTTPRequestHandler):
         page = max(1, page)
 
         token = self._read_github_token_header()
-        endpoint = GITHUB_API_BASE + '/repos/' + owner + '/' + repo + '/commits?' + urlencode({'per_page': per_page, 'page': page})
+        query = {'per_page': per_page, 'page': page}
+        for field in ('since', 'until'):
+            value = str((params.get(field) or [''])[0]).strip()
+            if value:
+                query[field] = value
+        endpoint = GITHUB_API_BASE + '/repos/' + owner + '/' + repo + '/commits?' + urlencode(query)
         self._proxy_github_json(endpoint, token)
 
     def _read_github_token_header(self):
