@@ -49,6 +49,7 @@ body {
   --accent-yellow: #f1c40f;
   --accent-red: #e74c3c;
   --accent-purple: #9b59b6;
+  --accent-cyan: #22b8cf;
   --shadow-color: rgba(0, 0, 0, 0.4);
   --overlay-bg: rgba(0, 0, 0, 0.6);
   --progress-bg: #2a2a4a;
@@ -1756,6 +1757,8 @@ textarea#retro-notes {
 .calendar-event-chip[data-type="release"] { border-left-color: var(--accent-green); }
 .calendar-event-chip[data-type="holiday"] { border-left-color: var(--accent-purple); }
 .calendar-event-chip[data-type="task"] { border-left-color: var(--accent-yellow); }
+.calendar-event-chip[data-type="training"] { border-left-color: var(--accent-cyan, #22b8cf); }
+.calendar-event-chip[data-type="other"] { border-left-color: var(--text-muted); }
 .calendar-event-chip[data-type="created"] { border-left-color: var(--accent-blue); }
 .calendar-event-chip[data-type="started"] { border-left-color: var(--accent-yellow); }
 .calendar-event-chip[data-type="progress"] { border-left-color: var(--accent-blue); }
@@ -1763,6 +1766,475 @@ textarea#retro-notes {
 .calendar-event-chip[data-type="reassigned"] { border-left-color: var(--accent-purple); }
 .calendar-event-chip[data-type="status-change"] { border-left-color: var(--accent-blue); }
 .calendar-event-chip[data-type="updated"] { border-left-color: var(--accent-yellow); }
+
+/* ========================================
+   CALENDAR — Typ-Legende & Filter
+   ======================================== */
+.calendar-type-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.75rem 0;
+}
+
+.calendar-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.calendar-legend-chip .material-symbols-rounded {
+  font-size: 1rem;
+  color: var(--legend-color, var(--accent-blue));
+}
+
+.calendar-legend-chip.active {
+  opacity: 1;
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--legend-color, var(--accent-blue)) 55%, var(--border-color));
+  background: color-mix(in srgb, var(--legend-color, var(--accent-blue)) 12%, var(--bg-card));
+}
+
+.calendar-legend-chip:hover {
+  opacity: 1;
+}
+
+.calendar-legend-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.3rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.68rem;
+}
+
+.calendar-legend-reset {
+  border: none;
+  background: transparent;
+  color: var(--accent-blue);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.3rem 0.45rem;
+}
+
+.calendar-legend-reset:hover {
+  text-decoration: underline;
+}
+
+/* ========================================
+   CALENDAR — Offene Einladungen (RSVP)
+   ======================================== */
+.calendar-pending-invites {
+  margin: 0.25rem 0 1rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--accent-blue) 35%, var(--border-color));
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(74, 158, 255, 0.1), rgba(255, 255, 255, 0.02));
+}
+
+.calendar-invites-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-primary);
+  margin-bottom: 0.6rem;
+}
+
+.calendar-invites-heading .material-symbols-rounded {
+  color: var(--accent-blue);
+  font-size: 1.2rem;
+}
+
+.calendar-invites-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  background: var(--accent-blue);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.calendar-invites-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.calendar-invite-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--invite-color, var(--accent-blue));
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.calendar-invite-info {
+  display: grid;
+  gap: 0.15rem;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 0;
+  min-width: 0;
+}
+
+.calendar-invite-info strong {
+  font-size: 0.85rem;
+}
+
+.calendar-invite-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--invite-color, var(--accent-blue));
+}
+
+.calendar-invite-type .material-symbols-rounded {
+  font-size: 0.95rem;
+}
+
+.calendar-invite-date {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.calendar-invite-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.calendar-invites-more {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  padding: 0.2rem 0.1rem;
+}
+
+/* ========================================
+   CALENDAR — RSVP Buttons, Badges & Pills
+   ======================================== */
+.calendar-rsvp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.calendar-rsvp-btn .material-symbols-rounded {
+  font-size: 1rem;
+}
+
+.calendar-rsvp-accepted .material-symbols-rounded { color: var(--accent-green); }
+.calendar-rsvp-tentative .material-symbols-rounded { color: var(--accent-yellow); }
+.calendar-rsvp-declined .material-symbols-rounded { color: var(--accent-red); }
+
+.calendar-rsvp-accepted:hover,
+.calendar-rsvp-accepted.selected {
+  border-color: var(--accent-green);
+  background: color-mix(in srgb, var(--accent-green) 14%, var(--bg-card));
+  color: var(--text-primary);
+}
+
+.calendar-rsvp-tentative:hover,
+.calendar-rsvp-tentative.selected {
+  border-color: var(--accent-yellow);
+  background: color-mix(in srgb, var(--accent-yellow) 14%, var(--bg-card));
+  color: var(--text-primary);
+}
+
+.calendar-rsvp-declined:hover,
+.calendar-rsvp-declined.selected {
+  border-color: var(--accent-red);
+  background: color-mix(in srgb, var(--accent-red) 14%, var(--bg-card));
+  color: var(--text-primary);
+}
+
+.calendar-rsvp-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.calendar-detail-rsvp-actions h3,
+.calendar-detail-participants h3 {
+  margin: 0 0 0.45rem;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.calendar-rsvp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.14rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.calendar-rsvp-badge .material-symbols-rounded {
+  font-size: 0.9rem;
+}
+
+.calendar-rsvp-badge-accepted { color: var(--accent-green); border-color: color-mix(in srgb, var(--accent-green) 45%, var(--border-color)); background: color-mix(in srgb, var(--accent-green) 10%, transparent); }
+.calendar-rsvp-badge-tentative { color: var(--accent-yellow); border-color: color-mix(in srgb, var(--accent-yellow) 45%, var(--border-color)); background: color-mix(in srgb, var(--accent-yellow) 10%, transparent); }
+.calendar-rsvp-badge-declined { color: var(--accent-red); border-color: color-mix(in srgb, var(--accent-red) 45%, var(--border-color)); background: color-mix(in srgb, var(--accent-red) 10%, transparent); }
+.calendar-rsvp-badge-pending { color: var(--text-muted); }
+
+.calendar-participant-list {
+  list-style: none;
+  margin: 0.55rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.calendar-participant-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.calendar-participant-name {
+  font-size: 0.82rem;
+  color: var(--text-primary);
+}
+
+.calendar-rsvp-summary {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.calendar-rsvp-summary-bar {
+  display: flex;
+  width: 100%;
+  height: 0.5rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--progress-bg);
+}
+
+.calendar-rsvp-fill-accepted { background: var(--accent-green); height: 100%; }
+.calendar-rsvp-fill-tentative { background: var(--accent-yellow); height: 100%; }
+.calendar-rsvp-fill-declined { background: var(--accent-red); height: 100%; }
+
+.calendar-rsvp-summary-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.85rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.calendar-rsvp-count-accepted { color: var(--accent-green); }
+.calendar-rsvp-count-tentative { color: var(--accent-yellow); }
+.calendar-rsvp-count-declined { color: var(--accent-red); }
+
+.calendar-event-card-rsvp {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+
+.calendar-rsvp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.calendar-rsvp-pill .material-symbols-rounded {
+  font-size: 0.85rem;
+}
+
+.calendar-rsvp-pill-accepted { color: var(--accent-green); }
+.calendar-rsvp-pill-tentative { color: var(--accent-yellow); }
+.calendar-rsvp-pill-declined { color: var(--accent-red); }
+
+/* ========================================
+   CALENDAR — Tages-Chip Erweiterungen
+   ======================================== */
+.calendar-event-chip-head {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.calendar-event-chip-icon {
+  font-size: 0.85rem;
+  flex: 0 0 auto;
+}
+
+.calendar-event-chip-rsvp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.calendar-event-chip-rsvp .material-symbols-rounded {
+  font-size: 0.8rem;
+}
+
+.calendar-event-chip-rsvp.all-accepted {
+  color: var(--accent-green);
+}
+
+.calendar-event-chip-rsvp.all-declined {
+  color: var(--accent-red);
+}
+
+.calendar-event-tag .material-symbols-rounded {
+  font-size: 0.9rem;
+  margin-right: 0.25rem;
+}
+
+/* ========================================
+   CALENDAR — Teilnehmer-Auswahl im Editor
+   ======================================== */
+.calendar-attendee-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.45rem;
+}
+
+.calendar-attendee-toolbar .btn-compact {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.74rem;
+}
+
+.calendar-attendee-toolbar .btn-compact .material-symbols-rounded {
+  font-size: 0.95rem;
+}
+
+.calendar-attendee-selected-count {
+  margin-left: auto;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.calendar-attendee-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 0.35rem;
+  max-height: 210px;
+  overflow-y: auto;
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+}
+
+.calendar-attendee-option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.calendar-attendee-option:hover {
+  background: rgba(74, 158, 255, 0.08);
+}
+
+.calendar-attendee-option:has(input:checked) {
+  border-color: color-mix(in srgb, var(--accent-blue) 55%, var(--border-color));
+  background: rgba(74, 158, 255, 0.12);
+  color: var(--text-primary);
+}
+
+.calendar-attendee-option input {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.calendar-attendee-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent-blue) 25%, var(--bg-card));
+  color: var(--text-primary);
+  font-size: 0.68rem;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.calendar-attendee-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-detail-participants {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.75rem 0.85rem;
+  background: var(--bg-card);
+}
 
 .calendar-event-chip[data-tooltip]:hover::after,
 .calendar-event-chip[data-tooltip]:focus-visible::after {

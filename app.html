@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400,0,0" rel="stylesheet">
 <link rel="stylesheet" href="styles.css?v=20261117d">
-<link rel="stylesheet" href="theme-override.css?v=20261117w">
+<link rel="stylesheet" href="theme-override.css?v=20261118b">
 <!-- Data Layer -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
 <style>
@@ -45,7 +45,7 @@
 <script src="modules/ki-workflow.js?v=20260830a"></script>
 <script src="modules/meeting.js?v=20261117a"></script>
 <script src="modules/quicktask.js?v=20261117d"></script>
-<script src="modules/task-history.js?v=20260816b"></script>
+<script src="modules/task-history.js?v=20261118b"></script>
 <script src="modules/releases.js?v=20260730u"></script>
 <script src="modules/search.js?v=20260730k"></script>
 <script src="modules/sharing.js?v=20260730b"></script>
@@ -438,9 +438,9 @@
     <section id="tasks" class="page">
       <div class="section-header">
         <div>
-          <p class="section-kicker">Aufgabenhistorie</p>
+          <p class="section-kicker">Aufgabenhistorie &amp; Review</p>
           <h1>Aufgaben</h1>
-          <p class="section-description">Bearbeitung, Abschluesse und Statuswechsel aller Aufgaben nachvollziehen.</p>
+          <p class="section-description">Alle Aufgaben nachvollziehen und pr&uuml;fen: Wer hat wann was erledigt &ndash; inklusive Review-Freigabe, Nacharbeit und Wiedereröffnung.</p>
         </div>
       </div>
       <div id="task-history-root" class="task-history-root"></div>
@@ -488,7 +488,7 @@
         <div>
           <p class="section-kicker">Team Coordination</p>
           <h1>Team-Kalender</h1>
-          <p class="section-description">Plane Termine oder wechsle in den Arbeitsfluss, um Aufgabenfortschritt und Teamarbeit ueber mehrere Tage sichtbar zu machen.</p>
+          <p class="section-description">Plane und verwalte Termine fuer das gesamte Team: Einladungen bestaetigen, Teilnahme im Blick behalten oder in den Arbeitsfluss wechseln, um Aufgabenfortschritt sichtbar zu machen.</p>
         </div>
         <div class="section-actions">
           <button id="cal-add-event" class="btn btn-primary"><span class="material-symbols-rounded" aria-hidden="true">add_circle</span><span>Termin anlegen</span></button>
@@ -500,6 +500,7 @@
             <button id="cal-prev-month" class="btn btn-secondary">◀</button>
             <span id="cal-current-month" class="calendar-month-title"></span>
             <button id="cal-next-month" class="btn btn-secondary">▶</button>
+            <button id="cal-today" class="btn btn-secondary" type="button" title="Zum aktuellen Monat springen">Heute</button>
           </div>
           <div class="calendar-actions">
             <label for="cal-view-mode" class="calendar-filter-label">Ansicht</label>
@@ -517,6 +518,8 @@
           </div>
         </div>
       </div>
+      <div class="calendar-type-legend" id="calendar-type-legend" role="group" aria-label="Terminarten filtern"></div>
+      <div class="calendar-pending-invites hidden" id="calendar-pending-invites" aria-live="polite"></div>
       <div class="calendar-grid" id="calendar-grid"></div>
       <div class="calendar-events-list" id="calendar-events-list"></div>
     </section>

@@ -180,7 +180,16 @@ Alle folgenden Schlüssel speichern **JSON-encoded Arrays** (`[]`). Der Default-
 |---------------|----------|---------------------------------------|
 | `id`          | `string` | UUID                                  |
 | `title`       | `string` | Event-Titel                           |
-| `date`        | `string` | Datum (ISO-8601)                      |
+| `date` / `startDate` | `string` | Datum (ISO-8601)               |
+| `startTime` / `endTime` | `string` | Uhrzeit (`HH:MM`), optional |
+| `allDay`      | `boolean`| Ganztagstermin                        |
+| `type`        | `string` | `meeting`, `deadline`, `release`, `training`, `holiday`, `task` oder `other` |
+| `location`    | `string` | Ort, optional                         |
+| `description` | `string` | Beschreibung, optional                |
+| `projectId`   | `string\|null` | Verknüpftes Projekt             |
+| `attendeeIds` | `string[]` | Eingeladene Mitarbeiter             |
+| `responses`   | `object` | RSVP-Antworten je Mitarbeiter-ID: `{ status: 'accepted'\|'tentative'\|'declined', respondedAt: string }`; ohne Eintrag gilt `pending` |
+| `createdByEmployeeId` | `string` | Organisator (Ersteller)       |
 | `createdAt`   | `string` | ISO-8601 Timestamp                    |
 
 ---

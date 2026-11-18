@@ -12,6 +12,20 @@
   var currentCalendarMode = CALENDAR_MODE_EVENTS;
   var expandedDaySet = new Set();
   var expandAllOverflowDays = false;
+  var disabledTypeSet = new Set();
+
+  var EVENT_TYPE_ORDER = ['meeting', 'deadline', 'release', 'training', 'holiday', 'task', 'other'];
+
+  var RSVP_META = {
+    accepted: { label: 'Zugesagt', color: 'var(--accent-green)', icon: 'check_circle' },
+    tentative: { label: 'Vielleicht', color: 'var(--accent-yellow)', icon: 'help' },
+    declined: { label: 'Abgesagt', color: 'var(--accent-red)', icon: 'cancel' },
+    pending: { label: 'Ausstehend', color: 'var(--text-muted)', icon: 'schedule' }
+  };
+
+  function getRsvpMeta(status) {
+    return RSVP_META[status] || RSVP_META.pending;
+  }
 
   function getAuthManager() {
     return window.AuthManager || null;
@@ -68,13 +82,15 @@
 
   function getEventTypeMeta(type) {
     var map = {
-      meeting: { label: 'Meeting', color: 'var(--accent-blue)' },
-      deadline: { label: 'Deadline', color: 'var(--accent-red)' },
-      release: { label: 'Release', color: 'var(--accent-green)' },
-      holiday: { label: 'Urlaub', color: 'var(--accent-purple)' },
-      task: { label: 'Task', color: 'var(--accent-yellow)' }
+      meeting: { label: 'Meeting', color: 'var(--accent-blue)', icon: 'groups' },
+      deadline: { label: 'Deadline', color: 'var(--accent-red)', icon: 'flag' },
+      release: { label: 'Release', color: 'var(--accent-green)', icon: 'rocket_launch' },
+      holiday: { label: 'Urlaub', color: 'var(--accent-purple)', icon: 'beach_access' },
+      task: { label: 'Task', color: 'var(--accent-yellow)', icon: 'task_alt' },
+      training: { label: 'Schulung', color: 'var(--accent-cyan, #22b8cf)', icon: 'school' },
+      other: { label: 'Sonstiges', color: 'var(--text-muted)', icon: 'event_note' }
     };
-    return map[type] || { label: 'Termin', color: 'var(--accent-blue)' };
+    return map[type] || { label: 'Termin', color: 'var(--accent-blue)', icon: 'event' };
   }
 
   function getActivityTypeMeta(type) {
@@ -128,6 +144,92 @@
         seen[id] = true;
         return true;
       });
+  }
+
+  /* ---------- RSVP / Terminbestaetigung ---------- */
+
+  function getEventResponses(event) {
+    var raw = event && event.responses && typeof event.responses === 'object' ? event.responses : {};
+    var result = Object.create(null);
+    getEventParticipants(event).forEach(function (id) {
+      var entry = raw[id];
+      var status = entry && ['accepted', 'declined', 'tentative'].indexOf(entry.status) !== -1 ? entry.status : 'pending';
+      result[id] = {
+        status: status,
+        respondedAt: entry && entry.respondedAt ? entry.respondedAt : ''
+      };
+    });
+    return result;
+  }
+
+  function getRsvpSummary(event) {
+    var responses = getEventResponses(event);
+    var summary = { accepted: 0, declined: 0, tentative: 0, pending: 0, total: 0 };
+    Object.keys(responses).forEach(function (id) {
+      summary[responses[id].status] += 1;
+      summary.total += 1;
+    });
+    return summary;
+  }
+
+  function getCurrentUser() {
+    var auth = getAuthManager();
+    return auth && typeof auth.getCurrentUser === 'function' ? auth.getCurrentUser() : null;
+  }
+
+  function canManageEventRsvp(event) {
+    var auth = getAuthManager();
+    if (!auth) return false;
+    var mode = typeof auth.getMode === 'function' ? auth.getMode() : '';
+    if (mode === 'admin' || mode === 'management' || mode === 'setup') return true;
+    var user = getCurrentUser();
+    return !!(user && String(event && event.createdByEmployeeId || '') === String(user.id));
+  }
+
+  function pushNotification(type, message) {
+    try {
+      if (window.DataLayer && window.DataLayer.createNotification) {
+        window.DataLayer.createNotification({ type: type, message: message, createdAt: new Date().toISOString(), read: false });
+      }
+    } catch (err) { /* Benachrichtigung ist optional */ }
+  }
+
+  function respondToEvent(eventId, status) {
+    var user = getCurrentUser();
+    if (!user) {
+      alert('Bitte anmelden, um auf Termineinladungen zu antworten.');
+      return false;
+    }
+    var event = getCalendarEvents().find(function (evt) { return evt.id === eventId; });
+    if (!event) return false;
+    if (getEventParticipants(event).indexOf(String(user.id)) === -1) return false;
+
+    if (!event.responses || typeof event.responses !== 'object') event.responses = {};
+    event.responses[String(user.id)] = {
+      status: status,
+      respondedAt: new Date().toISOString()
+    };
+    window.DataLayer.updateCalendarEvent(event);
+
+    var meta = getRsvpMeta(status);
+    pushNotification('calendar', (user.name || 'Mitarbeiter') + ' hat fuer "' + (event.title || 'Termin') + '" geantwortet: ' + meta.label);
+    renderCalendar(currentViewDate);
+    return true;
+  }
+
+  function sendRsvpReminder(eventId) {
+    var event = getCalendarEvents().find(function (evt) { return evt.id === eventId; });
+    if (!event) return;
+    var responses = getEventResponses(event);
+    var pendingNames = Object.keys(responses)
+      .filter(function (id) { return responses[id].status === 'pending'; })
+      .map(getEmployeeName);
+    if (!pendingNames.length) {
+      alert('Alle Teilnehmer haben bereits geantwortet.');
+      return;
+    }
+    pushNotification('calendar', 'Erinnerung: Bitte Termin "' + (event.title || 'Termin') + '" am ' + getDisplayDate(event.date || event.startDate) + ' bestaetigen (' + pendingNames.join(', ') + ').');
+    alert('Erinnerung fuer ' + pendingNames.length + ' ausstehende Antwort(en) wurde erstellt.');
   }
 
   function getEmployees() {
@@ -211,6 +313,149 @@
     return events.filter(function (evt) {
       return eventMatchesEmployeeFilter(evt, selectedEmployeeId);
     });
+  }
+
+  function normalizeEventType(type) {
+    return EVENT_TYPE_ORDER.indexOf(type) !== -1 ? type : 'other';
+  }
+
+  function filterEventsByType(events) {
+    if (!disabledTypeSet.size) return events;
+    return events.filter(function (evt) {
+      return !disabledTypeSet.has(normalizeEventType(evt.type || 'meeting'));
+    });
+  }
+
+  function renderTypeLegend(monthEvents) {
+    var legendEl = document.getElementById('calendar-type-legend');
+    if (!legendEl) return;
+    legendEl.innerHTML = '';
+
+    if (currentCalendarMode === CALENDAR_MODE_ACTIVITY) {
+      legendEl.classList.add('hidden');
+      return;
+    }
+    legendEl.classList.remove('hidden');
+
+    var counts = Object.create(null);
+    monthEvents.forEach(function (evt) {
+      var type = normalizeEventType(evt.type || 'meeting');
+      counts[type] = (counts[type] || 0) + 1;
+    });
+
+    EVENT_TYPE_ORDER.forEach(function (type) {
+      var meta = getEventTypeMeta(type);
+      var isActive = !disabledTypeSet.has(type);
+      var chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'calendar-legend-chip' + (isActive ? ' active' : '');
+      chip.style.setProperty('--legend-color', meta.color);
+      chip.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      chip.title = isActive ? meta.label + ' ausblenden' : meta.label + ' einblenden';
+      chip.innerHTML = '' +
+        '<span class="material-symbols-rounded" aria-hidden="true">' + meta.icon + '</span>' +
+        '<span>' + escapeHtml(meta.label) + '</span>' +
+        '<span class="calendar-legend-count">' + (counts[type] || 0) + '</span>';
+      chip.addEventListener('click', function () {
+        if (disabledTypeSet.has(type)) disabledTypeSet.delete(type);
+        else disabledTypeSet.add(type);
+        renderCalendar(currentViewDate);
+      });
+      legendEl.appendChild(chip);
+    });
+
+    if (disabledTypeSet.size) {
+      var reset = document.createElement('button');
+      reset.type = 'button';
+      reset.className = 'calendar-legend-reset';
+      reset.textContent = 'Alle Typen anzeigen';
+      reset.addEventListener('click', function () {
+        disabledTypeSet.clear();
+        renderCalendar(currentViewDate);
+      });
+      legendEl.appendChild(reset);
+    }
+  }
+
+  function renderPendingInvites() {
+    var panel = document.getElementById('calendar-pending-invites');
+    if (!panel) return;
+    panel.innerHTML = '';
+
+    var user = getCurrentUser();
+    if (!user || currentCalendarMode === CALENDAR_MODE_ACTIVITY) {
+      panel.classList.add('hidden');
+      return;
+    }
+
+    var todayKey = getISODate(new Date());
+    var pendingEvents = getCalendarEvents().filter(function (evt) {
+      var dateKey = String(evt.date || evt.startDate || '');
+      if (!dateKey || dateKey < todayKey) return false;
+      if (getEventParticipants(evt).indexOf(String(user.id)) === -1) return false;
+      var response = getEventResponses(evt)[String(user.id)];
+      return response && response.status === 'pending';
+    }).sort(sortEvents);
+
+    if (!pendingEvents.length) {
+      panel.classList.add('hidden');
+      return;
+    }
+    panel.classList.remove('hidden');
+
+    var heading = document.createElement('div');
+    heading.className = 'calendar-invites-heading';
+    heading.innerHTML = '<span class="material-symbols-rounded" aria-hidden="true">mark_email_unread</span>' +
+      '<strong>Offene Termineinladungen</strong>' +
+      '<span class="calendar-invites-count">' + pendingEvents.length + '</span>';
+    panel.appendChild(heading);
+
+    var list = document.createElement('div');
+    list.className = 'calendar-invites-list';
+
+    pendingEvents.slice(0, 5).forEach(function (evt) {
+      var meta = getEventTypeMeta(normalizeEventType(evt.type || 'meeting'));
+      var row = document.createElement('div');
+      row.className = 'calendar-invite-row';
+      row.style.setProperty('--invite-color', meta.color);
+
+      var info = document.createElement('button');
+      info.type = 'button';
+      info.className = 'calendar-invite-info';
+      info.innerHTML = '' +
+        '<span class="calendar-invite-type"><span class="material-symbols-rounded" aria-hidden="true">' + meta.icon + '</span>' + escapeHtml(meta.label) + '</span>' +
+        '<strong>' + escapeHtml(evt.title || 'Termin') + '</strong>' +
+        '<span class="calendar-invite-date">' + escapeHtml(getDisplayDate(evt.date || evt.startDate) + (evt.startTime ? ', ' + evt.startTime + ' Uhr' : '')) + '</span>';
+      info.addEventListener('click', function () { openEventDetailsModal(evt.id); });
+      row.appendChild(info);
+
+      var actions = document.createElement('div');
+      actions.className = 'calendar-invite-actions';
+      [['accepted', 'Zusagen'], ['tentative', 'Vielleicht'], ['declined', 'Absagen']].forEach(function (pair) {
+        var rsvp = getRsvpMeta(pair[0]);
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'calendar-rsvp-btn calendar-rsvp-' + pair[0];
+        btn.title = pair[1];
+        btn.innerHTML = '<span class="material-symbols-rounded" aria-hidden="true">' + rsvp.icon + '</span><span>' + pair[1] + '</span>';
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          respondToEvent(evt.id, pair[0]);
+        });
+        actions.appendChild(btn);
+      });
+      row.appendChild(actions);
+      list.appendChild(row);
+    });
+
+    if (pendingEvents.length > 5) {
+      var moreNote = document.createElement('div');
+      moreNote.className = 'calendar-invites-more';
+      moreNote.textContent = '+' + (pendingEvents.length - 5) + ' weitere Einladung(en) in der Terminliste';
+      list.appendChild(moreNote);
+    }
+
+    panel.appendChild(list);
   }
 
   function getTaskHistoryEntries(task) {
@@ -367,18 +612,43 @@
     chip.type = 'button';
     chip.className = 'calendar-event-chip';
     chip.dataset.id = evt.id;
-    chip.dataset.type = evt.type || 'meeting';
+    chip.dataset.type = normalizeEventType(evt.type || 'meeting');
+
+    var meta = getEventTypeMeta(chip.dataset.type);
+
+    var headEl = document.createElement('span');
+    headEl.className = 'calendar-event-chip-head';
+
+    var iconEl = document.createElement('span');
+    iconEl.className = 'material-symbols-rounded calendar-event-chip-icon';
+    iconEl.setAttribute('aria-hidden', 'true');
+    iconEl.textContent = meta.icon;
+    iconEl.style.color = meta.color;
 
     var titleEl = document.createElement('strong');
     titleEl.className = 'calendar-event-chip-title';
     titleEl.textContent = evt.title || 'Termin';
 
+    headEl.appendChild(iconEl);
+    headEl.appendChild(titleEl);
+
     var metaEl = document.createElement('span');
     metaEl.className = 'calendar-event-chip-meta';
-    metaEl.textContent = (evt.startTime ? evt.startTime : '') + (evt.endTime ? (' - ' + evt.endTime) : '');
+    metaEl.textContent = evt.allDay ? 'Ganztag' : ((evt.startTime ? evt.startTime : '') + (evt.endTime ? (' - ' + evt.endTime) : ''));
 
-    chip.appendChild(titleEl);
+    chip.appendChild(headEl);
     chip.appendChild(metaEl);
+
+    var summary = getRsvpSummary(evt);
+    if (summary.total > 0) {
+      var rsvpEl = document.createElement('span');
+      rsvpEl.className = 'calendar-event-chip-rsvp';
+      if (summary.accepted === summary.total) rsvpEl.classList.add('all-accepted');
+      else if (summary.declined === summary.total) rsvpEl.classList.add('all-declined');
+      rsvpEl.innerHTML = '<span class="material-symbols-rounded" aria-hidden="true">how_to_reg</span>' +
+        escapeHtml(summary.accepted + '/' + summary.total + ' bestaetigt');
+      chip.appendChild(rsvpEl);
+    }
 
     chip.addEventListener('click', function (e) {
       e.stopPropagation();
@@ -517,17 +787,80 @@
   function buildEventDetailsHtml(evt) {
     var auth = getAuthManager();
     var canEdit = !auth || typeof auth.canEditCalendarEvent !== 'function' || auth.canEditCalendarEvent(evt);
-    var meta = getEventTypeMeta(evt.type || 'meeting');
-    var participantNames = getEventParticipants(evt).map(getEmployeeName);
+    var meta = getEventTypeMeta(normalizeEventType(evt.type || 'meeting'));
     var projectLabel = getProjectLabel(evt.projectId);
+    var responses = getEventResponses(evt);
+    var summary = getRsvpSummary(evt);
+    var user = getCurrentUser();
+    var userIsParticipant = !!(user && getEventParticipants(evt).indexOf(String(user.id)) !== -1);
+    var userResponse = userIsParticipant ? responses[String(user.id)] : null;
+    var organizerName = evt.createdByEmployeeId ? getEmployeeName(evt.createdByEmployeeId) : '';
 
     var rows = [];
     rows.push('<div class="calendar-detail-item"><span class="calendar-detail-label">Datum</span><span class="calendar-detail-value">' + escapeHtml(getDisplayDate(evt.date || evt.startDate)) + '</span></div>');
-    rows.push('<div class="calendar-detail-item"><span class="calendar-detail-label">Zeit</span><span class="calendar-detail-value">' + escapeHtml((evt.startTime || '') + (evt.endTime ? (' - ' + evt.endTime) : '') || 'Ganztag') + '</span></div>');
+    rows.push('<div class="calendar-detail-item"><span class="calendar-detail-label">Zeit</span><span class="calendar-detail-value">' + escapeHtml(evt.allDay ? 'Ganztag' : ((evt.startTime || '') + (evt.endTime ? (' - ' + evt.endTime) : '') || 'Ganztag')) + '</span></div>');
     rows.push('<div class="calendar-detail-item"><span class="calendar-detail-label">Typ</span><span class="calendar-detail-value">' + escapeHtml(meta.label) + '</span></div>');
     rows.push('<div class="calendar-detail-item"><span class="calendar-detail-label">Ort</span><span class="calendar-detail-value">' + escapeHtml(evt.location || 'Nicht angegeben') + '</span></div>');
     rows.push('<div class="calendar-detail-item"><span class="calendar-detail-label">Projekt</span><span class="calendar-detail-value">' + escapeHtml(projectLabel || 'Kein Projekt') + '</span></div>');
-    rows.push('<div class="calendar-detail-item"><span class="calendar-detail-label">Mitarbeiter</span><span class="calendar-detail-value">' + escapeHtml(participantNames.length ? participantNames.join(', ') : 'Keine Zuweisung') + '</span></div>');
+    rows.push('<div class="calendar-detail-item"><span class="calendar-detail-label">Organisator</span><span class="calendar-detail-value">' + escapeHtml(organizerName || 'Nicht angegeben') + '</span></div>');
+
+    var participantIds = getEventParticipants(evt);
+    var participantsBlock;
+    if (participantIds.length) {
+      var participantItems = participantIds.map(function (id) {
+        var response = responses[id];
+        var rsvpMeta = getRsvpMeta(response.status);
+        var respondedHint = response.respondedAt ? ' title="Geantwortet am ' + escapeHtml(getDisplayDate(getISODate(response.respondedAt)) + ' ' + getDisplayTime(response.respondedAt)) + '"' : '';
+        return '<li class="calendar-participant-row">' +
+          '<span class="calendar-participant-name">' + escapeHtml(getEmployeeName(id)) + '</span>' +
+          '<span class="calendar-rsvp-badge calendar-rsvp-badge-' + response.status + '"' + respondedHint + '>' +
+          '<span class="material-symbols-rounded" aria-hidden="true">' + rsvpMeta.icon + '</span>' + escapeHtml(rsvpMeta.label) +
+          '</span>' +
+          '</li>';
+      }).join('');
+
+      var summaryBar = '' +
+        '<div class="calendar-rsvp-summary" role="status">' +
+        '<div class="calendar-rsvp-summary-bar" aria-hidden="true">' +
+        (summary.total ? '<span class="calendar-rsvp-fill-accepted" style="width:' + Math.round((summary.accepted / summary.total) * 100) + '%"></span>' +
+          '<span class="calendar-rsvp-fill-tentative" style="width:' + Math.round((summary.tentative / summary.total) * 100) + '%"></span>' +
+          '<span class="calendar-rsvp-fill-declined" style="width:' + Math.round((summary.declined / summary.total) * 100) + '%"></span>' : '') +
+        '</div>' +
+        '<div class="calendar-rsvp-summary-counts">' +
+        '<span class="calendar-rsvp-count-accepted">' + summary.accepted + ' Zusagen</span>' +
+        '<span class="calendar-rsvp-count-tentative">' + summary.tentative + ' Vielleicht</span>' +
+        '<span class="calendar-rsvp-count-declined">' + summary.declined + ' Absagen</span>' +
+        '<span class="calendar-rsvp-count-pending">' + summary.pending + ' Ausstehend</span>' +
+        '</div>' +
+        '</div>';
+
+      participantsBlock = '' +
+        '<div class="calendar-detail-participants">' +
+        '<h3>Teilnehmer (' + participantIds.length + ')</h3>' +
+        summaryBar +
+        '<ul class="calendar-participant-list">' + participantItems + '</ul>' +
+        '</div>';
+    } else {
+      participantsBlock = '<div class="calendar-detail-participants calendar-detail-description-muted"><h3>Teilnehmer</h3><p>Keine Mitarbeiter zugewiesen.</p></div>';
+    }
+
+    var rsvpActionsBlock = '';
+    if (userIsParticipant) {
+      var currentStatus = userResponse ? userResponse.status : 'pending';
+      rsvpActionsBlock = '' +
+        '<div class="calendar-detail-rsvp-actions">' +
+        '<h3>Meine Teilnahme</h3>' +
+        '<div class="calendar-rsvp-actions">' +
+        '<button type="button" class="calendar-rsvp-btn calendar-rsvp-accepted' + (currentStatus === 'accepted' ? ' selected' : '') + '" data-rsvp="accepted"><span class="material-symbols-rounded" aria-hidden="true">check_circle</span><span>Zusagen</span></button>' +
+        '<button type="button" class="calendar-rsvp-btn calendar-rsvp-tentative' + (currentStatus === 'tentative' ? ' selected' : '') + '" data-rsvp="tentative"><span class="material-symbols-rounded" aria-hidden="true">help</span><span>Vielleicht</span></button>' +
+        '<button type="button" class="calendar-rsvp-btn calendar-rsvp-declined' + (currentStatus === 'declined' ? ' selected' : '') + '" data-rsvp="declined"><span class="material-symbols-rounded" aria-hidden="true">cancel</span><span>Absagen</span></button>' +
+        '</div>' +
+        '</div>';
+    }
+
+    var reminderButton = (participantIds.length && summary.pending > 0 && canManageEventRsvp(evt))
+      ? '<button type="button" class="btn btn-secondary" id="calendar-modal-remind"><span class="material-symbols-rounded" aria-hidden="true">notifications_active</span><span>Erinnerung senden</span></button>'
+      : '';
 
     var descriptionBlock = evt.description
       ? '<div class="calendar-detail-description"><h3>Beschreibung</h3><p>' + escapeHtml(evt.description) + '</p></div>'
@@ -536,12 +869,15 @@
     return '' +
       '<div class="calendar-detail-shell">' +
       '<div class="calendar-detail-hero" style="--detail-accent:' + meta.color + '">' +
-      '<span class="calendar-event-tag" style="border-color:' + meta.color + ';color:' + meta.color + '">' + escapeHtml(meta.label) + '</span>' +
+      '<span class="calendar-event-tag" style="border-color:' + meta.color + ';color:' + meta.color + '"><span class="material-symbols-rounded" aria-hidden="true">' + meta.icon + '</span>' + escapeHtml(meta.label) + '</span>' +
       '<h2>' + escapeHtml(evt.title || 'Termin') + '</h2>' +
       '</div>' +
       '<div class="calendar-detail-grid">' + rows.join('') + '</div>' +
+      participantsBlock +
+      rsvpActionsBlock +
       descriptionBlock +
       '<div class="modal-actions">' +
+      reminderButton +
       '<button type="button" class="btn btn-secondary" id="calendar-modal-close">Schliessen</button>' +
       (canEdit ? '<button type="button" class="btn btn-primary" id="calendar-modal-edit">Bearbeiten</button>' : '') +
       '</div>' +
@@ -561,9 +897,21 @@
       return '<option value="' + escapeHtml(project.id) + '"' + selected + '>' + escapeHtml(project.title || project.name || project.id) + '</option>';
     }).join('');
 
-    var employeeOptions = employees.map(function (emp) {
-      var selected = attendeeIds.indexOf(String(emp.id)) !== -1 ? ' selected' : '';
-      return '<option value="' + escapeHtml(emp.id) + '"' + selected + '>' + escapeHtml(emp.name || emp.title || emp.id) + '</option>';
+    var attendeeCheckboxes = employees.map(function (emp) {
+      var id = String(emp.id);
+      var checked = attendeeIds.indexOf(id) !== -1 ? ' checked' : '';
+      var name = emp.name || emp.title || id;
+      return '<label class="calendar-attendee-option">' +
+        '<input type="checkbox" name="evt-attendee" value="' + escapeHtml(id) + '"' + checked + '>' +
+        '<span class="calendar-attendee-avatar" aria-hidden="true">' + escapeHtml(String(name).trim().charAt(0).toUpperCase() || '?') + '</span>' +
+        '<span class="calendar-attendee-name">' + escapeHtml(name) + '</span>' +
+        '</label>';
+    }).join('');
+
+    var typeOptions = EVENT_TYPE_ORDER.map(function (type) {
+      var meta = getEventTypeMeta(type);
+      var isSelected = event ? normalizeEventType(event.type || 'meeting') === type : type === 'meeting';
+      return '<option value="' + type + '"' + (isSelected ? ' selected' : '') + '>' + escapeHtml(meta.label) + '</option>';
     }).join('');
 
     return '' +
@@ -581,17 +929,21 @@
       '</div>' +
       '<div class="calendar-modal-grid">' +
       '<div class="form-group"><label for="evt-type">Typ</label>' +
-      '<select id="evt-type">' +
-      '<option value="meeting"' + (((event && event.type === 'meeting') || !event) ? ' selected' : '') + '>Meeting</option>' +
-      '<option value="deadline"' + ((event && event.type === 'deadline') ? ' selected' : '') + '>Deadline</option>' +
-      '<option value="release"' + ((event && event.type === 'release') ? ' selected' : '') + '>Release</option>' +
-      '<option value="holiday"' + ((event && event.type === 'holiday') ? ' selected' : '') + '>Urlaub</option>' +
-      '<option value="task"' + ((event && event.type === 'task') ? ' selected' : '') + '>Task</option>' +
-      '</select></div>' +
+      '<select id="evt-type">' + typeOptions + '</select></div>' +
       '<div class="form-group"><label for="evt-project">Projekt</label><select id="evt-project"><option value="">-- Kein Projekt --</option>' + projectOptions + '</select></div>' +
       '</div>' +
       '<div class="form-group"><label for="evt-location">Ort</label><input type="text" id="evt-location" value="' + escapeHtml((event && event.location) || '') + '"></div>' +
-      '<div class="form-group"><label for="evt-attendees">Mitarbeiter</label><select id="evt-attendees" multiple>' + employeeOptions + '</select><small class="text-muted">Strg/Cmd + Klick fuer Mehrfachauswahl.</small></div>' +
+      '<div class="form-group">' +
+      '<label>Teilnehmer</label>' +
+      '<div class="calendar-attendee-toolbar">' +
+      '<button type="button" class="btn btn-secondary btn-compact" id="evt-attendees-project-team" title="Teammitglieder des gewaehlten Projekts auswaehlen"><span class="material-symbols-rounded" aria-hidden="true">diversity_3</span><span>Projektteam</span></button>' +
+      '<button type="button" class="btn btn-secondary btn-compact" id="evt-attendees-all">Alle auswaehlen</button>' +
+      '<button type="button" class="btn btn-secondary btn-compact" id="evt-attendees-none">Auswahl leeren</button>' +
+      '<span class="calendar-attendee-selected-count" id="evt-attendee-count"></span>' +
+      '</div>' +
+      '<div class="calendar-attendee-list" id="evt-attendee-list">' + (attendeeCheckboxes || '<p class="text-muted">Keine Mitarbeiter angelegt.</p>') + '</div>' +
+      '<small class="text-muted">Neue Teilnehmer erhalten den Status "Ausstehend" und koennen den Termin zu- oder absagen.</small>' +
+      '</div>' +
       '<div class="form-group"><label for="evt-description">Beschreibung</label><textarea id="evt-description" rows="3">' + escapeHtml((event && event.description) || '') + '</textarea></div>' +
       '<div class="form-group"><label><input type="checkbox" id="evt-all-day"' + ((event && event.allDay) ? ' checked' : '') + '> Ganztagstermin</label></div>' +
       '<div class="modal-actions">' +
@@ -623,6 +975,23 @@
         openEventEditorModal(event.id);
       });
     }
+
+    var remindBtn = document.getElementById('calendar-modal-remind');
+    if (remindBtn) {
+      remindBtn.addEventListener('click', function () {
+        sendRsvpReminder(event.id);
+      });
+    }
+
+    Array.prototype.forEach.call(content.querySelectorAll('.calendar-rsvp-actions .calendar-rsvp-btn'), function (btn) {
+      btn.addEventListener('click', function () {
+        var status = btn.getAttribute('data-rsvp');
+        if (!status) return;
+        if (respondToEvent(event.id, status)) {
+          openEventDetailsModal(event.id);
+        }
+      });
+    });
   }
 
   function openEventEditorModal(eventId, defaultDate, modalOptions) {
@@ -653,8 +1022,71 @@
     var deleteBtn = document.getElementById('calendar-delete-btn');
     if (deleteBtn) deleteBtn.addEventListener('click', window.deleteCalendarEvent);
 
+    setupAttendeePicker();
+
     var titleField = document.getElementById('evt-title');
     if (titleField && titleField.focus) titleField.focus();
+  }
+
+  function getAttendeeCheckboxes() {
+    var list = document.getElementById('evt-attendee-list');
+    if (!list) return [];
+    return Array.prototype.slice.call(list.querySelectorAll('input[name="evt-attendee"]'));
+  }
+
+  function updateAttendeeSelectedCount() {
+    var countEl = document.getElementById('evt-attendee-count');
+    if (!countEl) return;
+    var selected = getAttendeeCheckboxes().filter(function (cb) { return cb.checked; }).length;
+    countEl.textContent = selected ? selected + ' ausgewaehlt' : 'Keine Auswahl';
+  }
+
+  function setupAttendeePicker() {
+    var checkboxes = getAttendeeCheckboxes();
+    checkboxes.forEach(function (cb) {
+      cb.addEventListener('change', updateAttendeeSelectedCount);
+    });
+    updateAttendeeSelectedCount();
+
+    var allBtn = document.getElementById('evt-attendees-all');
+    if (allBtn) {
+      allBtn.addEventListener('click', function () {
+        getAttendeeCheckboxes().forEach(function (cb) { cb.checked = true; });
+        updateAttendeeSelectedCount();
+      });
+    }
+
+    var noneBtn = document.getElementById('evt-attendees-none');
+    if (noneBtn) {
+      noneBtn.addEventListener('click', function () {
+        getAttendeeCheckboxes().forEach(function (cb) { cb.checked = false; });
+        updateAttendeeSelectedCount();
+      });
+    }
+
+    var teamBtn = document.getElementById('evt-attendees-project-team');
+    if (teamBtn) {
+      teamBtn.addEventListener('click', function () {
+        var projectEl = document.getElementById('evt-project');
+        var projectId = projectEl ? projectEl.value : '';
+        if (!projectId) {
+          alert('Bitte zuerst ein Projekt auswaehlen, um dessen Team zu uebernehmen.');
+          return;
+        }
+        var project = window.DataLayer && window.DataLayer.getProjectById ? window.DataLayer.getProjectById(projectId) : null;
+        var teamIds = project && Array.isArray(project.teamMembers)
+          ? project.teamMembers.map(function (member) { return String(member && member.employeeId || ''); }).filter(Boolean)
+          : [];
+        if (!teamIds.length) {
+          alert('Das gewaehlte Projekt hat keine Teammitglieder.');
+          return;
+        }
+        getAttendeeCheckboxes().forEach(function (cb) {
+          if (teamIds.indexOf(String(cb.value)) !== -1) cb.checked = true;
+        });
+        updateAttendeeSelectedCount();
+      });
+    }
   }
 
   function setSharedModalClosePolicy(options) {
@@ -748,7 +1180,12 @@
         grid.appendChild(headerCell);
       });
 
-      var visibleEvents = filterEventsByEmployee(getCalendarEvents().slice().sort(sortEvents));
+      var visibleEvents = filterEventsByType(filterEventsByEmployee(getCalendarEvents().slice().sort(sortEvents)));
+      var legendEvents = filterEventsByEmployee(getCalendarEvents()).filter(function (evt) {
+        return isDateInMonth(String(evt.date || evt.startDate || ''), currentViewDate);
+      });
+      renderTypeLegend(legendEvents);
+      renderPendingInvites();
       var activityEntries = buildTaskActivityEntries();
       var overflowDaysCount = 0;
 
@@ -863,9 +1300,10 @@
       var card = document.createElement('article');
       card.className = 'calendar-event-card';
 
-      var meta = getEventTypeMeta(evt.type || 'meeting');
+      var meta = getEventTypeMeta(normalizeEventType(evt.type || 'meeting'));
       var participants = getEventParticipants(evt).map(getEmployeeName);
       var projectLabel = getProjectLabel(evt.projectId);
+      var summary = getRsvpSummary(evt);
       var details = [];
 
       if (evt.location) details.push('<div><strong>Ort:</strong> ' + escapeHtml(evt.location) + '</div>');
@@ -873,13 +1311,23 @@
       if (participants.length) details.push('<div><strong>Mitarbeiter:</strong> ' + escapeHtml(participants.join(', ')) + '</div>');
       if (evt.description) details.push('<div><strong>Hinweis:</strong> ' + escapeHtml(evt.description) + '</div>');
 
+      var rsvpBlock = summary.total > 0
+        ? '<div class="calendar-event-card-rsvp">' +
+          '<span class="calendar-rsvp-pill calendar-rsvp-pill-accepted" title="Zusagen"><span class="material-symbols-rounded" aria-hidden="true">check_circle</span>' + summary.accepted + '</span>' +
+          '<span class="calendar-rsvp-pill calendar-rsvp-pill-tentative" title="Vielleicht"><span class="material-symbols-rounded" aria-hidden="true">help</span>' + summary.tentative + '</span>' +
+          '<span class="calendar-rsvp-pill calendar-rsvp-pill-declined" title="Absagen"><span class="material-symbols-rounded" aria-hidden="true">cancel</span>' + summary.declined + '</span>' +
+          '<span class="calendar-rsvp-pill calendar-rsvp-pill-pending" title="Ausstehend"><span class="material-symbols-rounded" aria-hidden="true">schedule</span>' + summary.pending + '</span>' +
+          '</div>'
+        : '';
+
       card.innerHTML = '' +
         '<div class="calendar-event-card-head">' +
-        '<span class="calendar-event-tag" style="border-color:' + meta.color + ';color:' + meta.color + '">' + escapeHtml(meta.label) + '</span>' +
+        '<span class="calendar-event-tag" style="border-color:' + meta.color + ';color:' + meta.color + '"><span class="material-symbols-rounded" aria-hidden="true">' + meta.icon + '</span>' + escapeHtml(meta.label) + '</span>' +
         '<span class="calendar-event-date">' + escapeHtml(getDisplayDate(evt.date || evt.startDate)) + '</span>' +
         '</div>' +
         '<h3>' + escapeHtml(evt.title || 'Termin') + '</h3>' +
-        '<div class="calendar-event-meta">' + escapeHtml((evt.startTime ? evt.startTime : '') + (evt.endTime ? (' - ' + evt.endTime) : '')) + '</div>' +
+        '<div class="calendar-event-meta">' + escapeHtml(evt.allDay ? 'Ganztag' : ((evt.startTime ? evt.startTime : '') + (evt.endTime ? (' - ' + evt.endTime) : ''))) + '</div>' +
+        rsvpBlock +
         '<div class="calendar-event-details">' + details.join('') + '</div>';
 
       card.addEventListener('click', function () {
@@ -1024,7 +1472,6 @@
       var descriptionEl = document.getElementById('evt-description');
       var projectEl = document.getElementById('evt-project');
       var allDayEl = document.getElementById('evt-all-day');
-      var attendeeSelect = document.getElementById('evt-attendees');
       var idEl = document.getElementById('evt-id');
       var createdAtEl = document.getElementById('evt-created-at');
 
@@ -1035,11 +1482,9 @@
       }
 
       var attendeeIds = [];
-      if (attendeeSelect) {
-        Array.prototype.forEach.call(attendeeSelect.options, function (option) {
-          if (option.selected) attendeeIds.push(option.value);
-        });
-      }
+      getAttendeeCheckboxes().forEach(function (cb) {
+        if (cb.checked) attendeeIds.push(cb.value);
+      });
 
       var payload = {
         title: title,
@@ -1059,20 +1504,41 @@
       var existingId = idEl ? idEl.value : '';
       if (existingId) {
         payload.id = existingId;
+        var existingEvent = window.DataLayer.getCalendarEventById(existingId);
         if (auth && typeof auth.canEditCalendarEvent === 'function') {
-          var existingEvent = window.DataLayer.getCalendarEventById(existingId);
           if (!auth.canEditCalendarEvent(existingEvent)) {
             alert('Dieser Termin kann nur gelesen werden.');
             return;
           }
         }
+        // Bestehende Antworten der weiterhin eingeladenen Teilnehmer uebernehmen
+        payload.createdByEmployeeId = existingEvent && existingEvent.createdByEmployeeId || '';
+        var previousResponses = existingEvent && existingEvent.responses && typeof existingEvent.responses === 'object' ? existingEvent.responses : {};
+        var nextResponses = {};
+        attendeeIds.forEach(function (id) {
+          if (previousResponses[id]) nextResponses[id] = previousResponses[id];
+        });
+        payload.responses = nextResponses;
         window.DataLayer.updateCalendarEvent(payload);
+
+        var newAttendees = attendeeIds.filter(function (id) {
+          return !existingEvent || getEventParticipants(existingEvent).indexOf(String(id)) === -1;
+        });
+        if (newAttendees.length) {
+          pushNotification('calendar', 'Termineinladung "' + title + '" am ' + getDisplayDate(payload.date) + ' an: ' + newAttendees.map(getEmployeeName).join(', '));
+        }
       } else {
         if (auth && typeof auth.canCreateCalendarEvent === 'function' && !auth.canCreateCalendarEvent()) {
           alert('Gastnutzer koennen keine Termine anlegen.');
           return;
         }
+        var currentUser = getCurrentUser();
+        if (currentUser) payload.createdByEmployeeId = String(currentUser.id);
+        payload.responses = {};
         window.DataLayer.createCalendarEvent(payload);
+        if (attendeeIds.length) {
+          pushNotification('calendar', 'Neuer Termin "' + title + '" am ' + getDisplayDate(payload.date) + ' - Einladung an: ' + attendeeIds.map(getEmployeeName).join(', '));
+        }
       }
 
       closeModal();
@@ -1120,23 +1586,59 @@
     window.closeModal();
   }
 
+  function escapeICSText(value) {
+    return String(value || '')
+      .replace(/\\/g, '\\\\')
+      .replace(/;/g, '\\;')
+      .replace(/,/g, '\\,')
+      .replace(/\r?\n/g, '\\n');
+  }
+
+  function formatICSDateTime(dateStr, timeStr) {
+    var compactDate = String(dateStr || '').replace(/-/g, '');
+    if (timeStr && /^\d{2}:\d{2}$/.test(timeStr)) {
+      return compactDate + 'T' + timeStr.replace(':', '') + '00';
+    }
+    return compactDate;
+  }
+
   function exportICS() {
     try {
-      var events = getCalendarEvents();
+      var events = filterEventsByType(filterEventsByEmployee(getCalendarEvents().slice()));
       if (!events.length) {
         alert('Keine Events zum Exportieren.');
         return;
       }
 
-      var ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Projekt-Dashboard//DE\r\n';
+      var stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+      var lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Projekt-Dashboard//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
+
       events.forEach(function (evt) {
-        ics += 'BEGIN:VEVENT\r\n';
-        if (evt.startDate || evt.date) ics += 'DTSTART:' + formatICSDate(evt.startDate || evt.date) + '\r\n';
-        ics += 'SUMMARY:' + (evt.title || 'Event') + '\r\n';
-        if (evt.type) ics += 'CATEGORIES:' + String(evt.type).toUpperCase() + '\r\n';
-        ics += 'END:VEVENT\r\n';
+        var dateStr = evt.date || evt.startDate;
+        if (!dateStr) return;
+        var hasTime = !evt.allDay && evt.startTime;
+
+        lines.push('BEGIN:VEVENT');
+        lines.push('UID:' + escapeICSText(evt.id || ('evt-' + Math.random().toString(36).slice(2))) + '@projekt-dashboard');
+        lines.push('DTSTAMP:' + stamp);
+        if (hasTime) {
+          lines.push('DTSTART:' + formatICSDateTime(dateStr, evt.startTime));
+          if (evt.endTime) lines.push('DTEND:' + formatICSDateTime(dateStr, evt.endTime));
+        } else {
+          lines.push('DTSTART;VALUE=DATE:' + formatICSDateTime(dateStr));
+        }
+        lines.push('SUMMARY:' + escapeICSText(evt.title || 'Termin'));
+        if (evt.location) lines.push('LOCATION:' + escapeICSText(evt.location));
+        if (evt.description) lines.push('DESCRIPTION:' + escapeICSText(evt.description));
+        if (evt.type) lines.push('CATEGORIES:' + escapeICSText(getEventTypeMeta(normalizeEventType(evt.type)).label.toUpperCase()));
+        getEventParticipants(evt).forEach(function (id) {
+          lines.push('ATTENDEE;CN=' + escapeICSText(getEmployeeName(id)) + ':MAILTO:noreply@projekt-dashboard.local');
+        });
+        lines.push('END:VEVENT');
       });
-      ics += 'END:VCALENDAR';
+
+      lines.push('END:VCALENDAR');
+      var ics = lines.join('\r\n');
 
       var blob = new Blob([ics], { type: 'text/calendar' });
       var url = URL.createObjectURL(blob);
@@ -1152,11 +1654,6 @@
     }
   }
 
-  function formatICSDate(value) {
-    var dt = new Date(value + 'T00:00:00');
-    return dt.getFullYear() + String(dt.getMonth() + 1).padStart(2, '0') + String(dt.getDate()).padStart(2, '0') + 'T000000Z';
-  }
-
   function setupCalendarNav() {
     var prev = document.getElementById('cal-prev-month');
     if (prev) {
@@ -1169,6 +1666,13 @@
     if (next) {
       next.addEventListener('click', function () {
         renderCalendar(new Date(currentViewDate.getFullYear(), currentViewDate.getMonth() + 1, 1));
+      });
+    }
+
+    var todayBtn = document.getElementById('cal-today');
+    if (todayBtn) {
+      todayBtn.addEventListener('click', function () {
+        renderCalendar(new Date());
       });
     }
 
@@ -1244,6 +1748,7 @@
     exportICS: exportICS,
     openModal: openEventModal,
     openDetails: openEventDetailsModal,
+    respond: respondToEvent,
     setMode: function (mode) {
       currentCalendarMode = mode === CALENDAR_MODE_ACTIVITY ? CALENDAR_MODE_ACTIVITY : CALENDAR_MODE_EVENTS;
       renderCalendar(currentViewDate);

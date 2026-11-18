@@ -224,6 +224,10 @@ Hinweis: Fuer volle Funktion (Persistenz, KI, GitHub-Proxy) muss trotzdem `stora
 
 Datei [app.html](app.html) kann direkt geoeffnet werden, aber bei manchen Browsern fuehrt file:// zu Modul- oder CORS-Einschraenkungen. Fuer stabile Nutzung HTTP-Server verwenden.
 
+### Aufgaben prüfen
+
+Unter `#page=tasks` wechselt der Ansichtsumschalter zwischen allen Aufgaben, der Review-Warteschlange und erledigten Aufgaben. Die Karten zeigen Projekt, Zuweisung und Abschluss auf einen Blick. Über den Pfeil lassen sich Details und Verlauf öffnen; Review, Nacharbeit und Wiedereröffnung werden direkt in der Karte bestätigt.
+
 ## Feature-Uebersicht (18 Bereiche)
 
 1. Dashboard
