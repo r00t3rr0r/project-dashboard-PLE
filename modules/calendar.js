@@ -786,7 +786,7 @@
 
   function buildEventDetailsHtml(evt) {
     var auth = getAuthManager();
-    var canEdit = !auth || typeof auth.canEditCalendarEvent !== 'function' || auth.canEditCalendarEvent(evt);
+    var canEdit = evt.source !== 'github-commit' && (!auth || typeof auth.canEditCalendarEvent !== 'function' || auth.canEditCalendarEvent(evt));
     var meta = getEventTypeMeta(normalizeEventType(evt.type || 'meeting'));
     var projectLabel = getProjectLabel(evt.projectId);
     var responses = getEventResponses(evt);
@@ -1001,6 +1001,10 @@
 
     var auth = getAuthManager();
     var event = eventId ? getCalendarEvents().find(function (evt) { return evt.id === eventId; }) : null;
+    if (event && event.source === 'github-commit') {
+      alert('GitHub-Commit-Eintraege werden aus der Aufgabe erzeugt und koennen hier nicht bearbeitet werden.');
+      return;
+    }
     if (!event && auth && typeof auth.canCreateCalendarEvent === 'function' && !auth.canCreateCalendarEvent()) {
       alert('Gastnutzer koennen keine Termine anlegen.');
       return;

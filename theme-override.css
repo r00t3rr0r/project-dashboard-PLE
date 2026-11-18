@@ -8205,6 +8205,10 @@ body.light-mode .resolution-dialog::backdrop {
   .ai-assistant-task > span { display: grid; gap: .2rem; min-width: 0; }
   .ai-assistant-task strong { font-size: .75rem; }
   .ai-assistant-task small { display: -webkit-box; overflow: hidden; color: var(--text-muted); font-size: .68rem; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+  .ai-commit-task { cursor: default; }
+  .ai-commit-task small { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ai-commit-translation { display: grid; gap: .2rem; font-size: .72rem; color: var(--text-secondary); }
+  .ai-commit-translation textarea { width: 100%; resize: vertical; }
   .ai-assistant-task-meta { display: flex; flex-wrap: wrap; gap: .25rem; }
   .ai-assistant-task-meta b { padding: .12rem .28rem; border-radius: 3px; color: var(--text-secondary); background: rgba(127,127,127,.1); font-size: .62rem; font-weight: 500; }
   .ai-assistant-pending { display: flex; gap: .45rem; align-items: center; min-height: 2.5rem; color: var(--text-secondary); font-size: .74rem; }

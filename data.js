@@ -2418,8 +2418,8 @@
   }
 
   function getTaskScheduleDates(task) {
-    if (!task || !task.schedule) return [];
-    var schedule = task.schedule;
+    if (!task) return [];
+    var schedule = task.schedule || {};
     var mode = schedule.mode || 'none';
     var list = [];
 
@@ -2434,6 +2434,19 @@
       list.push({ suffix: 'asap', date: new Date().toISOString().slice(0, 10), title: 'Sofort' });
     }
 
+    var commits = task.githubCommitImport && task.githubCommitImport.commits;
+    if (Array.isArray(commits)) {
+      commits.forEach(function (commit) {
+        if (!commit || !/^[a-f0-9]{7,64}$/i.test(commit.sha || '') ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(commit.calendarDate || '') ||
+            !/^\d{2}:\d{2}$/.test(commit.calendarTime || '')) {
+          console.warn('[DataLayer] Ungueltiger GitHub-Commit-Kalendereintrag fuer Aufgabe ' + task.id);
+          return;
+        }
+        list.push({ suffix: 'github-commit-' + commit.sha, date: commit.calendarDate, commit: commit });
+      });
+    }
+
     return list;
   }
 
@@ -2443,15 +2456,19 @@
     var prefix = getTaskCalendarLinkPrefix(task.id);
     var desired = getTaskScheduleDates(task);
     var seenIds = Object.create(null);
+    var eventsById = Object.create(null);
     var changed = false;
 
+    calendarEvents.forEach(function (event) {
+      if (event && event.id) eventsById[event.id] = event;
+    });
     desired.forEach(function (entry) {
       var eventId = prefix + '-' + entry.suffix;
       var normalizedDate = taskEventDateOnly(entry.date);
       if (!normalizedDate) return;
       seenIds[eventId] = true;
 
-      var current = calendarEvents.find(function (evt) { return evt.id === eventId; });
+      var current = eventsById[eventId];
       var nextPayload = {
         id: eventId,
         title: entry.title + ': ' + (task.title || 'Aufgabe'),
@@ -2464,9 +2481,25 @@
         createdAt: current && current.createdAt ? current.createdAt : new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
+      if (entry.commit) {
+        var commit = entry.commit;
+        nextPayload.title = 'GitHub-Commit: ' + (commit.title || 'Commit') + (commit.titleEn ? ' / ' + commit.titleEn : '') + ' [' + commit.sha.slice(0, 7) + '] · ' + (commit.author || 'Unbekannt');
+        nextPayload.startTime = commit.calendarTime;
+        nextPayload.description = 'Rueckwirkende Dokumentation eines GitHub-Commits; keine erfasste Arbeitsdauer.\n' +
+          'Aufgabe: ' + (task.title || 'Aufgabe') + '\n' +
+          'Autor: ' + (commit.author || 'Unbekannt') + '\n' +
+          'Zeitpunkt: ' + commit.date + '\n' +
+          'Commit: ' + commit.sha + '\n' +
+          (commit.descriptionDe ? 'DE: ' + commit.descriptionDe + '\n' : '') +
+          (commit.descriptionEn ? 'EN: ' + commit.descriptionEn + '\n' : '') +
+          'Original: ' + (commit.message || '') + '\n' +
+          (commit.url || '');
+        nextPayload.source = 'github-commit';
+      }
 
       if (!current) {
         calendarEvents.push(nextPayload);
+        eventsById[eventId] = nextPayload;
         changed = true;
       } else {
         var currentSerialized = JSON.stringify({
@@ -2476,7 +2509,9 @@
           type: current.type,
           projectId: current.projectId,
           taskId: current.taskId,
-          source: current.source
+          source: current.source,
+          startTime: entry.commit ? current.startTime : undefined,
+          description: entry.commit ? current.description : undefined
         });
         var nextSerialized = JSON.stringify({
           title: nextPayload.title,
@@ -2485,7 +2520,9 @@
           type: nextPayload.type,
           projectId: nextPayload.projectId,
           taskId: nextPayload.taskId,
-          source: nextPayload.source
+          source: nextPayload.source,
+          startTime: nextPayload.startTime,
+          description: nextPayload.description
         });
 
         if (currentSerialized !== nextSerialized) {
@@ -2496,6 +2533,10 @@
           current.projectId = nextPayload.projectId;
           current.taskId = nextPayload.taskId;
           current.source = nextPayload.source;
+          if (entry.commit) {
+            current.startTime = nextPayload.startTime;
+            current.description = nextPayload.description;
+          }
           current.updatedAt = nextPayload.updatedAt;
           changed = true;
         }

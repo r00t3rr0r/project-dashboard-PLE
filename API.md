@@ -260,22 +260,39 @@ Parameter:
 
 Im operativen Assistenten ein mit GitHub verknuepftes Projekt auswaehlen und
 "Erledigte Aufgaben aus GitHub" starten. Der Assistent laedt alle Seiten der
-Commits des Standardbranches fuer die letzten 24 Stunden, mit festem Start- und
-Endzeitpunkt. Private Repositories verwenden den GitHub-Token des angemeldeten
-Mitarbeiters; der Token wird nicht an die KI gesendet.
+Commits des Standardbranches seit dem letzten bekannten Import (hoechstes
+gespeichertes `until` fuer Projekt und Repository) bis jetzt. Dadurch sind
+beliebige Zeitraeume zwischen zwei Importen mit einer Abfrage abgedeckt. Ohne
+frueheren Import wird die gesamte Commit-Historie geladen. Private Repositories
+verwenden den GitHub-Token des angemeldeten Mitarbeiters; der Token wird nicht
+an die KI gesendet.
 
-Ollama formuliert einen deutschen Teilaufgabentitel je Commit. Bei fehlender,
-leerer oder nicht eindeutig zuordenbarer Uebersetzung wird die erste Zeile der
-Originalnachricht (z.B. Englisch) verwendet. Das gilt auch bei fehlgeschlagener
-KI-Uebersetzung; ein bewusster Abbruch stoppt den Vorgang weiterhin. Erst nach
-Pruefung und Auswahl in der Vorschau oeffnet sich der vorausgefuellte Dialog
+Ollama uebersetzt jede vollstaendige Commit-Nachricht, auch aus dem Tuerkischen,
+ins Deutsche und Englische und formuliert jeweils einen kurzen Aufgabentitel.
+Die Vorschau zeigt beide Sprachen und das Original; alle Uebersetzungen koennen
+vor der Uebernahme korrigiert werden. KI-Ausgaben koennen inhaltlich falsch oder
+unvollstaendig sein, besonders mit kleinen Modellen, und muessen geprueft werden.
+Fehlende, leere oder nicht eindeutig anhand der SHA zuordenbare Uebersetzungen
+stoppen die Vorbereitung mit einer Fehlermeldung statt einer stillen Ersetzung.
+Erst nach Pruefung und Auswahl oeffnet sich der vorausgefuellte Dialog
 "Neue Aufgabe". Aufgabe und Teilaufgaben lassen sich dort vor dem Speichern
 bearbeiten. Erst beim Speichern wird die Projektaufgabe mit `status: done`,
-`progress: 100` und erledigten Teilaufgaben (`completed: true`) angelegt. Die
-Beschreibung enthaelt Originalnachrichten, SHA, Autor, Zeitpunkt und GitHub-Link.
-Commits dokumentieren Aenderungen, nicht automatisch erfolgreiche Tests oder Abnahmen.
+`progress: 100` und erledigten Teilaufgaben (`completed: true`) angelegt.
+Teilaufgaben enthalten beide Titel (`DE: ... · EN: ... [sha]`); die Beschreibung
+enthaelt beide uebersetzten Nachrichten, das Original, SHA, Autor, Zeitpunkt und
+GitHub-Link. Commits dokumentieren Aenderungen, nicht automatisch erfolgreiche
+Tests oder Abnahmen. Bereits gespeicherte Aufgaben werden nicht umuebersetzt.
 
-`task.githubCommitImport` speichert `repository`, `since`, `until` und `shas`.
+`task.githubCommitImport` speichert `repository`, `since` (leer beim ersten
+Import ueber die gesamte Historie), `until`, `shas` und fuer neue Importe
+strukturierte `commits`. Beim Speichern entsteht pro ausgewaehltem Commit ein
+mit der Aufgabe verknuepfter Kalendereintrag in der Terminansicht. Datum und
+Uhrzeit entsprechen dem GitHub-Committer-Zeitpunkt in der lokalen Zeitzone des
+importierenden Browsers und bleiben danach unveraendert. Der Eintrag nennt den
+GitHub-Autor und dokumentiert weder Arbeitsdauer noch Mitarbeiterzuweisung:
+Im Mitarbeiterfilter erscheint er daher unter „Ohne Mitarbeiter“. Eintraege
+werden mit der Aufgabe synchronisiert und beim Loeschen der Aufgabe entfernt.
+Fruehere Importe ohne strukturierte Commit-Daten werden nicht nachgetragen.
 Bereits ueber diese Funktion importierte SHAs werden fuer dasselbe Projekt und
 Repository beim Abruf und vor der Uebernahme ausgefiltert. Das ist kein
 serverseitiger Eindeutigkeitsschutz gegen gleichzeitige Importe mehrerer Nutzer.

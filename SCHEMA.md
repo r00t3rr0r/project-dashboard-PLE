@@ -100,6 +100,7 @@ Alle folgenden Schlüssel speichern **JSON-encoded Arrays** (`[]`). Der Default-
 | `urgency`     | `string`   | `"low"` \| `"normal"` \| `"high"` \| `"critical"` |
 | `effortHours` | `number`   | Geplanter Aufwand in Stunden                  |
 | `schedule`    | `object`   | Terminlogik: `mode`, `deadline`, `fixedAt`, `rangeStart`, `rangeEnd` |
+| `githubCommitImport` | `object` | GitHub-Import mit `repository`, `since`, `until`, `shas` und optional `commits` fuer rueckwirkende Kalendereintraege |
 | `timeTracking` | `object`  | Arbeitszeit/Pausenstatus: `totalMinutes`, `activeStartedAt`, `inProgressConfirmedAt`, `isPaused`, `pausedAt`, `pauseReasonPending`, `lastPauseReason`, `minutesByDate`, `pauseHistory` |
 | `subtasks`    | `object[]` | Liste der Teilaufgaben (`id`, `title`, `completed`, `createdAt`) |
 | `notes`       | `object[]` | Hinweise/Notizen zur Aufgabe (`id`, `text`, `createdAt`) |
@@ -187,6 +188,7 @@ Alle folgenden Schlüssel speichern **JSON-encoded Arrays** (`[]`). Der Default-
 | `location`    | `string` | Ort, optional                         |
 | `description` | `string` | Beschreibung, optional                |
 | `projectId`   | `string\|null` | Verknüpftes Projekt             |
+| `taskId` / `source` | `string` | Optional: Aufgabenverknuepfung und Quelle; `github-commit` fuer synchronisierte Commit-Eintraege |
 | `attendeeIds` | `string[]` | Eingeladene Mitarbeiter             |
 | `responses`   | `object` | RSVP-Antworten je Mitarbeiter-ID: `{ status: 'accepted'\|'tentative'\|'declined', respondedAt: string }`; ohne Eintrag gilt `pending` |
 | `createdByEmployeeId` | `string` | Organisator (Ersteller)       |
