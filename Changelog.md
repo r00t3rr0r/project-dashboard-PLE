@@ -10,6 +10,10 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Unreleased]
 
 ### Added
+- Team-Kalender: Terminbestaetigung (RSVP) mit Zusagen/Vielleicht/Absagen je Teilnehmer, Bestaetigungsuebersicht pro Termin und Panel "Offene Termineinladungen" mit Schnellantwort
+- Team-Kalender: Teilnehmer-Checklisten-Auswahl im Termin-Editor mit Schnellaktionen (Projektteam uebernehmen, Alle auswaehlen, Auswahl leeren)
+- Team-Kalender: Neue Terminarten "Schulung" und "Sonstiges", klickbare Typ-Legende mit Monatszaehlern zum Ein-/Ausblenden einzelner Terminarten, "Heute"-Button
+- Team-Kalender: Organisatoren koennen Erinnerungen an Teilnehmer mit ausstehender Antwort senden; Benachrichtigungen bei Einladung und Antwort
 - Sprint Management Page (sprint.html) mit Sprint-Erstellung, Backlog-Anzeige und Retrospective-Feld
 - Public API Referenz in `API.md` — alle `window.DataLayer`-Funktionen dokumentiert
 
@@ -17,6 +21,8 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Batch 3b: Leichte Fallback-Struktur für die Sprint-Seite implementiert
 
 ### Improved
+- Team-Kalender: Professionellere Termindarstellung mit Typ-Icons, Ganztagskennzeichnung und Bestaetigungsindikator direkt in der Monatsansicht
+- Team-Kalender: iCal-Export mit Uhrzeiten, Ort, Beschreibung, Teilnehmern und korrektem Escaping; exportiert die aktuell gefilterte Ansicht
 - Konsistente CSS-Klassen (`.stat-card`, `.progress-bar-fill`, `.badge`) über alle Seiten hinweg
 - Kompakte Dateistruktur — max. ~200 Zeilen pro Datei
 

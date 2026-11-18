@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Team-Kalender – Designprüfung</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="theme-override.css">
+  <style>
+    body { padding: 1.5rem; }
+    .page { display: block !important; }
+  </style>
+</head>
+<body>
+  <main class="main-content" style="margin-left:0;">
+    <section id="calendar" class="page">
+      <div class="section-header section-header-inline">
+        <div>
+          <p class="section-kicker">Team Coordination</p>
+          <h1>Team-Kalender</h1>
+          <p class="section-description">Plane und verwalte Termine fuer das gesamte Team: Einladungen bestaetigen, Teilnahme im Blick behalten oder in den Arbeitsfluss wechseln, um Aufgabenfortschritt sichtbar zu machen.</p>
+        </div>
+        <div class="section-actions">
+          <button id="cal-add-event" class="btn btn-primary"><span class="material-symbols-rounded" aria-hidden="true">add_circle</span><span>Termin anlegen</span></button>
+        </div>
+      </div>
+      <div class="calendar-header">
+        <div class="calendar-toolbar">
+          <div class="calendar-nav-group">
+            <button id="cal-prev-month" class="btn btn-secondary">◀</button>
+            <span id="cal-current-month" class="calendar-month-title"></span>
+            <button id="cal-next-month" class="btn btn-secondary">▶</button>
+            <button id="cal-today" class="btn btn-secondary" type="button" title="Zum aktuellen Monat springen">Heute</button>
+          </div>
+          <div class="calendar-actions">
+            <label for="cal-view-mode" class="calendar-filter-label">Ansicht</label>
+            <select id="cal-view-mode" class="calendar-filter-select" aria-label="Kalenderansicht waehlen">
+              <option value="events">Termine</option>
+              <option value="activity">Arbeitsfluss</option>
+            </select>
+            <label for="cal-employee-filter" class="calendar-filter-label">Mitarbeiter</label>
+            <select id="cal-employee-filter" class="calendar-filter-select" aria-label="Kalender nach Mitarbeiter filtern">
+              <option value="">Alle Mitarbeiter</option>
+              <option value="__unassigned__">Ohne Mitarbeiter</option>
+            </select>
+            <button id="cal-toggle-overflow-days" class="btn btn-secondary" type="button" aria-expanded="false">Alle Tage aufklappen</button>
+            <button id="cal-export-ics" class="btn btn-secondary"><span class="material-symbols-rounded" aria-hidden="true">download</span><span>iCal export</span></button>
+          </div>
+        </div>
+      </div>
+      <div class="calendar-type-legend" id="calendar-type-legend" role="group" aria-label="Terminarten filtern"></div>
+      <div class="calendar-pending-invites hidden" id="calendar-pending-invites"></div>
+      <div class="calendar-grid" id="calendar-grid"></div>
+      <div class="calendar-events-list" id="calendar-events-list"></div>
+    </section>
+  </main>
+
+  <div class="modal-overlay hidden" id="modal-overlay">
+    <div class="modal-content" id="modal-content"></div>
+  </div>
+
+  <script>
+    (function () {
+      var pad = function (n) { return String(n).padStart(2, '0'); };
+      var now = new Date();
+      var y = now.getFullYear(), m = now.getMonth();
+      var day = function (d) { return y + '-' + pad(m + 1) + '-' + pad(d); };
+      var today = day(now.getDate());
+      var futureDay = day(Math.min(now.getDate() + 3, 28));
+
+      var employees = [
+        { id: 'e1', name: 'Anna Berger', workplace: 'Buero Berlin' },
+        { id: 'e2', name: 'Ben Krause', workplace: 'Homeoffice' },
+        { id: 'e3', name: 'Clara Vogt', workplace: 'Buero Hamburg' },
+        { id: 'e4', name: 'David Lenz', workplace: 'Buero Berlin' }
+      ];
+
+      var projects = [
+        { id: 'p1', title: 'Website Relaunch', teamMembers: [
+          { id: 'tm1', employeeId: 'e1', role: 'Projektleiter' },
+          { id: 'tm2', employeeId: 'e2', role: 'Entwicklung' },
+          { id: 'tm3', employeeId: 'e3', role: 'Design' }
+        ] }
+      ];
+
+      var events = [
+        { id: 'ev1', title: 'Sprint-Planung Q4', type: 'meeting', date: today, startDate: today, startTime: '09:00', endTime: '10:30', location: 'Raum A', projectId: 'p1', description: 'Planung der naechsten Iteration.', attendeeIds: ['e1', 'e2', 'e3', 'e4'], createdByEmployeeId: 'e1', createdAt: new Date().toISOString(),
+          responses: { e2: { status: 'accepted', respondedAt: new Date().toISOString() }, e3: { status: 'tentative', respondedAt: new Date().toISOString() }, e4: { status: 'declined', respondedAt: new Date().toISOString() } } },
+        { id: 'ev2', title: 'Release 2.4', type: 'release', date: day(12), startDate: day(12), allDay: true, projectId: 'p1', attendeeIds: ['e1', 'e2'], createdByEmployeeId: 'e1', createdAt: new Date().toISOString(),
+          responses: { e1: { status: 'accepted', respondedAt: new Date().toISOString() }, e2: { status: 'accepted', respondedAt: new Date().toISOString() } } },
+        { id: 'ev3', title: 'Abgabe Lastenheft', type: 'deadline', date: day(20), startDate: day(20), startTime: '17:00', attendeeIds: ['e3'], createdByEmployeeId: 'e1', createdAt: new Date().toISOString(), responses: {} },
+        { id: 'ev4', title: 'Security-Schulung', type: 'training', date: futureDay, startDate: futureDay, startTime: '13:00', endTime: '16:00', location: 'Online', attendeeIds: ['e1', 'e2', 'e3', 'e4'], createdByEmployeeId: 'e2', createdAt: new Date().toISOString(),
+          responses: { e2: { status: 'accepted', respondedAt: new Date().toISOString() } } },
+        { id: 'ev5', title: 'Urlaub Clara', type: 'holiday', date: day(24), startDate: day(24), allDay: true, attendeeIds: ['e3'], createdByEmployeeId: 'e3', createdAt: new Date().toISOString(), responses: { e3: { status: 'accepted', respondedAt: new Date().toISOString() } } },
+        { id: 'ev6', title: 'Team-Lunch', type: 'other', date: day(15), startDate: day(15), startTime: '12:00', endTime: '13:00', location: 'Kantine', attendeeIds: [], createdAt: new Date().toISOString() }
+      ];
+
+      window.DataLayer = {
+        getCalendarEvents: function () { return events; },
+        getCalendarEventById: function (id) { return events.find(function (e) { return e.id === id; }) || null; },
+        createCalendarEvent: function (evt) { evt.id = 'ev' + (events.length + 1); events.push(evt); },
+        updateCalendarEvent: function (evt) {
+          var idx = events.findIndex(function (e) { return e.id === evt.id; });
+          if (idx !== -1) events[idx] = Object.assign(events[idx], evt);
+        },
+        deleteCalendarEvent: function (id) {
+          var idx = events.findIndex(function (e) { return e.id === id; });
+          if (idx !== -1) events.splice(idx, 1);
+        },
+        getEmployees: function () { return employees; },
+        getProjects: function () { return projects; },
+        getProjectById: function (id) { return projects.find(function (p) { return p.id === id; }) || null; },
+        getTasks: function () { return []; },
+        createNotification: function (n) { console.log('[Preview-Notification]', n.message); }
+      };
+
+      window.AuthManager = {
+        getMode: function () { return 'employee'; },
+        getCurrentUser: function () { return employees[0]; },
+        canCreateCalendarEvent: function () { return true; },
+        canEditCalendarEvent: function () { return true; },
+        getVisibleProjects: function (list) { return list; }
+      };
+    })();
+  </script>
+  <script src="modules/calendar.js"></script>
+</body>
+</html>
