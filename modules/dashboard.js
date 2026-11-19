@@ -1957,10 +1957,12 @@
     return 'vor ' + hours + ' Std.' + (minutes ? ' ' + minutes + ' Min.' : '');
   }
 
-  function buildTeamLoadSubtasksHtml(task) {
+  function buildTeamLoadSubtasksHtml(task, expandedSubtaskTaskIds) {
     var subtasks = task && Array.isArray(task.subtasks) ? task.subtasks : [];
     if (!subtasks.length) return '';
 
+    var taskId = String(task.id || '');
+    var isExpanded = !!(taskId && expandedSubtaskTaskIds[taskId]);
     var completedCount = subtasks.filter(function(subtask) { return subtask && subtask.completed; }).length;
     var openSubtasks = subtasks.filter(function(subtask) { return subtask && !subtask.completed; });
     var currentSubtask = openSubtasks[0] || null;
@@ -1973,14 +1975,25 @@
       html += '<div class="team-load-subtask is-current" title="Arbeitet gerade an: ' + escapeHtml(currentTitle) + '">';
       html += '<span class="material-symbols-rounded" aria-hidden="true">play_arrow</span>';
       html += '<span class="team-load-subtask-prefix">Aktuell:</span><span class="team-load-subtask-title">' + escapeHtml(currentTitle) + '</span></div>';
-      upcomingSubtasks.slice(0, 2).forEach(function(subtask, index) {
-        var upcomingTitle = String(subtask.title || 'Teilaufgabe').trim() || 'Teilaufgabe';
-        html += '<div class="team-load-subtask is-upcoming" title="Folgt: ' + escapeHtml(upcomingTitle) + '">';
+      if (upcomingSubtasks.length) {
+        var nextTitle = String(upcomingSubtasks[0].title || 'Teilaufgabe').trim() || 'Teilaufgabe';
+        html += '<div class="team-load-subtask is-next" title="Als Nächstes: ' + escapeHtml(nextTitle) + '">';
         html += '<span class="material-symbols-rounded" aria-hidden="true">schedule</span>';
-        html += '<span class="team-load-subtask-prefix">' + (index === 0 ? 'Danach:' : 'Dann:') + '</span><span class="team-load-subtask-title">' + escapeHtml(upcomingTitle) + '</span></div>';
-      });
-      if (upcomingSubtasks.length > 2) {
-        html += '<div class="team-load-subtask is-more">+' + (upcomingSubtasks.length - 2) + ' weitere Teilaufgaben</div>';
+        html += '<span class="team-load-subtask-prefix">Als Nächstes:</span><span class="team-load-subtask-title">' + escapeHtml(nextTitle) + '</span></div>';
+      }
+      if (upcomingSubtasks.length > 1) {
+        html += '<details class="team-load-subtasks-more" data-task-id="' + escapeHtml(taskId) + '"' + (isExpanded ? ' open' : '') + '>';
+        html += '<summary><span class="material-symbols-rounded" aria-hidden="true">expand_more</span>';
+        html += '<span class="team-load-subtasks-more-label">+' + (upcomingSubtasks.length - 1) + ' weitere Teilaufgaben anzeigen</span>';
+        html += '<span class="team-load-subtasks-less-label">Weniger anzeigen</span></summary>';
+        html += '<div class="team-load-subtasks-following">';
+        upcomingSubtasks.slice(1).forEach(function(subtask) {
+          var followingTitle = String(subtask.title || 'Teilaufgabe').trim() || 'Teilaufgabe';
+          html += '<div class="team-load-subtask is-upcoming" title="Danach: ' + escapeHtml(followingTitle) + '">';
+          html += '<span class="material-symbols-rounded" aria-hidden="true">schedule</span>';
+          html += '<span class="team-load-subtask-prefix">Danach:</span><span class="team-load-subtask-title">' + escapeHtml(followingTitle) + '</span></div>';
+        });
+        html += '</div></details>';
       }
     } else {
       html += '<div class="team-load-subtask is-done-all"><span class="material-symbols-rounded" aria-hidden="true">check_circle</span><span class="team-load-subtask-title">Alle Teilaufgaben erledigt</span></div>';
@@ -1995,6 +2008,14 @@
     var projects = window.DataLayer.getProjects() || [];
     var container = document.getElementById('chart-team-load');
     if (!container) return;
+
+    var expandedSubtaskTaskIds = Object.create(null);
+    if (typeof container.querySelectorAll === 'function') {
+      Array.prototype.forEach.call(container.querySelectorAll('.team-load-subtasks-more[open][data-task-id]'), function(details) {
+        var taskId = details.getAttribute('data-task-id');
+        if (taskId) expandedSubtaskTaskIds[taskId] = true;
+      });
+    }
 
     if (employees.length === 0) {
       setHtmlIfChanged(container, '<h3>Aufgabenverteilung</h3><p class="chart-empty">Nicht genügend Daten für Chart.</p>');
@@ -2121,7 +2142,7 @@
           html += '<span class="team-load-task-label" title="' + escapeHtml(title) + '">' + escapeHtml(taskLabel) + '</span>';
           if (projectLabel) html += '<span class="team-load-task-project" title="Projekt: ' + escapeHtml(projectLabel) + '">' + escapeHtml(projectLabel) + '</span>';
           html += '<div class="team-load-task-progress"><span class="team-load-task-track" aria-hidden="true"><span class="team-load-task-fill"></span></span><span class="team-load-task-value">' + progress + '%</span></div>';
-          html += buildTeamLoadSubtasksHtml(task);
+          html += buildTeamLoadSubtasksHtml(task, expandedSubtaskTaskIds);
           html += '</div>';
         });
 

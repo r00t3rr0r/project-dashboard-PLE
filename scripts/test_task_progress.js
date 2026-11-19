@@ -31,9 +31,13 @@ function makeDashboard(data) {
     addEventListener(){},
     classList:{toggle(){}}
   };
+  const teamLoadContainer = {innerHTML:'',expandedSubtaskTaskIds:[]};
+  teamLoadContainer.querySelectorAll = ()=>teamLoadContainer.expandedSubtaskTaskIds.map(taskId=>({
+    getAttribute:()=>taskId
+  }));
   const document = {
     addEventListener(){},
-    getElementById:id=>id==='chart-progress-bar'?container:null,
+    getElementById:id=>id==='chart-progress-bar'?container:(id==='chart-team-load'?teamLoadContainer:null),
     createTextNode:value=>value,
     createElement:()=>({
       appendChild(value) {
@@ -44,7 +48,7 @@ function makeDashboard(data) {
   const window = {DataLayer:data};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../modules/dashboard.js'),'utf8'),
     {window,document,console,Date,encodeURIComponent});
-  return {dashboard:window.DashboardManager,container};
+  return {dashboard:window.DashboardManager,container,teamLoadContainer};
 }
 
 test('subtask changes determine persisted progress and task history without changing status',()=>{
@@ -126,6 +130,36 @@ test('dashboard renders completed and next subtasks and refreshes after task upd
   data.updateTask(task);
   assert.match(container.innerHTML,/Nächste:<\/span> &lt;Erster&gt;/);
   assert.doesNotMatch(container.innerHTML,/Erledigt:<\/span> &lt;Erster&gt;/);
+});
+
+test('team load shows the current and next subtask and lets users expand the remaining list',()=>{
+  const data = makeDataLayer();
+  data.getEmployees = ()=>[{id:'employee',name:'Alex'}];
+  data.createTask({
+    id:'active',title:'Aktive Aufgabe',status:'in-progress',assigneeId:'employee',employeeName:'Alex',
+    subtasks:[
+      {title:'Erster Schritt',completed:true},
+      {title:'Aktueller Schritt'},
+      {title:'Nächster Schritt'},
+      {title:'Danach Schritt'},
+      {title:'Letzter Schritt'}
+    ]
+  });
+  const {dashboard,teamLoadContainer} = makeDashboard(data);
+  dashboard.renderTeamLoad();
+
+  const html = teamLoadContainer.innerHTML;
+  assert.match(html,/Aktuell:<\/span><span class="team-load-subtask-title">Aktueller Schritt/);
+  assert.match(html,/Als Nächstes:<\/span><span class="team-load-subtask-title">Nächster Schritt/);
+  assert.match(html,/class="team-load-subtasks-more"/);
+  assert.match(html,/\+2 weitere Teilaufgaben anzeigen/);
+  assert.match(html,/Danach:<\/span><span class="team-load-subtask-title">Danach Schritt/);
+  assert.match(html,/Danach:<\/span><span class="team-load-subtask-title">Letzter Schritt/);
+  assert.ok(html.indexOf('Nächster Schritt') < html.indexOf('Danach Schritt'));
+
+  teamLoadContainer.expandedSubtaskTaskIds = ['active'];
+  dashboard.renderTeamLoad();
+  assert.match(teamLoadContainer.innerHTML,/<details class="team-load-subtasks-more" data-task-id="active" open>/);
 });
 
 test('project progress shows only tasks in progress, regardless of subtasks or recent activity',()=>{

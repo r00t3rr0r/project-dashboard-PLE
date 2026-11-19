@@ -14,7 +14,7 @@ Die Anwendung wurde umfassend modernisiert:
 - Konsolidierte Modal- und Komponenten-Styles in mehreren Modulen
 - Theme-Token-Dokumentation in [THEME-TOKENS-DARK.md](THEME-TOKENS-DARK.md)
 
-Bei Aufgaben mit Teilaufgaben wird der Aufgabenfortschritt automatisch aus dem Anteil der erledigten Teilaufgaben berechnet. Das Dashboard zeigt für Aufgaben in Bearbeitung die erledigten und die erste offene Teilaufgabe; der Aufgabenstatus wird dadurch nicht automatisch geändert. Ohne Teilaufgaben bleibt der Fortschritt manuell einstellbar.
+Bei Aufgaben mit Teilaufgaben wird der Aufgabenfortschritt automatisch aus dem Anteil der erledigten Teilaufgaben berechnet. In der Aufgabenverteilung zeigt das Dashboard für Aufgaben in Bearbeitung die aktuell bearbeitete und die nächste offene Teilaufgabe; weitere offene Teilaufgaben lassen sich darunter aufklappen. Der Aufgabenstatus wird dadurch nicht automatisch geändert. Ohne Teilaufgaben bleibt der Fortschritt manuell einstellbar.
 
 ## Quickstart
 

@@ -3473,9 +3473,71 @@ body.projects-modal-open {
   color: var(--team-progress-accent, #5ba6ff);
 }
 
-.team-load-subtask.is-upcoming,
-.team-load-subtask.is-more {
+.team-load-subtask.is-next {
+  margin-left: 0.28rem;
+  padding-left: 0.38rem;
+  border-left: 1px solid color-mix(in srgb, var(--team-progress-accent, #5ba6ff) 38%, transparent);
+  color: color-mix(in srgb, var(--text-primary) 76%, var(--text-muted));
+  font-size: 0.63rem;
+}
+
+.team-load-subtask.is-next > .material-symbols-rounded {
+  font-size: 0.78rem;
+}
+
+.team-load-subtask.is-upcoming {
   color: var(--text-muted);
+  font-size: 0.63rem;
+}
+
+.team-load-subtasks-more {
+  margin-left: 0.28rem;
+  min-width: 0;
+}
+
+.team-load-subtasks-more summary {
+  display: flex;
+  align-items: center;
+  gap: 0.22rem;
+  color: color-mix(in srgb, var(--text-primary) 76%, var(--text-muted));
+  cursor: pointer;
+  font-size: 0.62rem;
+  line-height: 1.25;
+  list-style: none;
+}
+
+.team-load-subtasks-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.team-load-subtasks-more summary > .material-symbols-rounded {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  transition: transform 140ms ease;
+}
+
+.team-load-subtasks-more[open] summary > .material-symbols-rounded {
+  transform: rotate(180deg);
+}
+
+.team-load-subtasks-less-label {
+  display: none;
+}
+
+.team-load-subtasks-more[open] .team-load-subtasks-more-label {
+  display: none;
+}
+
+.team-load-subtasks-more[open] .team-load-subtasks-less-label {
+  display: inline;
+}
+
+.team-load-subtasks-following {
+  display: grid;
+  gap: 0.22rem;
+  margin: 0.22rem 0 0.05rem 0.36rem;
+  padding-left: 0.42rem;
+  border-left: 1px dashed color-mix(in srgb, var(--team-progress-accent, #5ba6ff) 28%, transparent);
 }
 
 .team-load-subtask.is-done-all {
