@@ -3420,6 +3420,68 @@ body.projects-modal-open {
   width: auto;
 }
 
+.team-load-subtasks {
+  display: grid;
+  gap: 0.22rem;
+  margin-top: 0.18rem;
+  padding: 0.38rem 0.45rem;
+  border-left: 2px solid color-mix(in srgb, var(--team-progress-accent, #5ba6ff) 55%, transparent);
+  border-radius: 0.4rem;
+  background: rgba(255, 255, 255, 0.04);
+  min-width: 0;
+}
+
+.team-load-subtasks-count {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.team-load-subtask {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  font-size: 0.67rem;
+  line-height: 1.25;
+}
+
+.team-load-subtask > .material-symbols-rounded {
+  flex: 0 0 auto;
+  font-size: 0.85rem;
+}
+
+.team-load-subtask-prefix {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.team-load-subtask-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-load-subtask.is-current {
+  color: var(--text-primary);
+}
+
+.team-load-subtask.is-current > .material-symbols-rounded {
+  color: var(--team-progress-accent, #5ba6ff);
+}
+
+.team-load-subtask.is-upcoming,
+.team-load-subtask.is-more {
+  color: var(--text-muted);
+}
+
+.team-load-subtask.is-done-all {
+  color: #16845d;
+}
+
 .team-load-done-list {
   display: grid;
   gap: 0.32rem;

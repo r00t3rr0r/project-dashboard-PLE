@@ -100,10 +100,10 @@ test('dashboard renders completed and next subtasks and refreshes after task upd
   const data = makeDataLayer();
   data.createProject({id:'project',title:'Projekt'});
   const task = data.createTask({
-    id:'task',title:'Aufgabe',projectId:'project',status:'todo',
+    id:'task',title:'Aufgabe',projectId:'project',status:'in-progress',
     subtasks:[{title:'<Erster>'},{title:'Zweiter'},{title:'Dritter'}]
   });
-  data.createTask({id:'free',title:'Ohne Zuordnung',subtasks:[{title:'Freier Schritt'}]});
+  data.createTask({id:'free',title:'Ohne Zuordnung',status:'in-progress',subtasks:[{title:'Freier Schritt'}]});
   const {dashboard,container} = makeDashboard(data);
   data.on('dataChanged',event=>{
     if (event.entity==='tasks') dashboard.renderProjectProgress();
@@ -126,4 +126,27 @@ test('dashboard renders completed and next subtasks and refreshes after task upd
   data.updateTask(task);
   assert.match(container.innerHTML,/Nächste:<\/span> &lt;Erster&gt;/);
   assert.doesNotMatch(container.innerHTML,/Erledigt:<\/span> &lt;Erster&gt;/);
+});
+
+test('project progress shows only tasks in progress, regardless of subtasks or recent activity',()=>{
+  const data = makeDataLayer();
+  data.createProject({id:'project',title:'Projekt'});
+  const active = data.createTask({id:'active',title:'Aktive Aufgabe',projectId:'project',status:'in-progress'});
+  const done = data.createTask({id:'done',title:'Erledigte Commits',projectId:'project',status:'done',subtasks:[{title:'Commit',completed:true}]});
+  data.createTask({id:'todo',title:'Offene Aufgabe',projectId:'project',status:'todo',subtasks:[{title:'Schritt'}]});
+  data.createTask({id:'free-done',title:'Erledigt ohne Projekt',status:'done',subtasks:[{title:'Commit',completed:true}]});
+  const {dashboard,container} = makeDashboard(data);
+  data.on('dataChanged',event=>{
+    if (event.entity==='tasks') dashboard.renderProjectProgress();
+  });
+  data.updateTask(done);
+  assert.match(container.innerHTML,/Aktive Aufgabe/);
+  assert.doesNotMatch(container.innerHTML,/Erledigte Commits|Offene Aufgabe|Erledigt ohne Projekt|Ohne Projekt/);
+  active.status = 'done';
+  data.updateTask(active);
+  assert.match(container.innerHTML,/Keine Aufgaben in Bearbeitung/);
+  done.status = 'in-progress';
+  data.updateTask(done);
+  assert.match(container.innerHTML,/Erledigte Commits/);
+  assert.match(container.innerHTML,/Erledigt:<\/span> Commit/);
 });
