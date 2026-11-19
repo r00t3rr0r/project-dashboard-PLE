@@ -28,9 +28,13 @@ function makeDashboard(data) {
   const container = {
     dataset:{},
     innerHTML:'',
+    expandedSubtaskTaskIds:[],
     addEventListener(){},
     classList:{toggle(){}}
   };
+  container.querySelectorAll = ()=>container.expandedSubtaskTaskIds.map(taskId=>({
+    getAttribute:()=>taskId
+  }));
   const teamLoadContainer = {innerHTML:'',expandedSubtaskTaskIds:[]};
   teamLoadContainer.querySelectorAll = ()=>teamLoadContainer.expandedSubtaskTaskIds.map(taskId=>({
     getAttribute:()=>taskId
@@ -100,12 +104,12 @@ test('existing tasks are recalculated on hydration and manual tasks remain uncha
   assert.equal(data.getTaskById('manual').progress,37);
 });
 
-test('dashboard renders completed and next subtasks and refreshes after task updates',()=>{
+test('project progress uses the shared current-and-next subtask display and refreshes after task updates',()=>{
   const data = makeDataLayer();
   data.createProject({id:'project',title:'Projekt'});
   const task = data.createTask({
     id:'task',title:'Aufgabe',projectId:'project',status:'in-progress',
-    subtasks:[{title:'<Erster>'},{title:'Zweiter'},{title:'Dritter'}]
+    subtasks:[{title:'<Erster>'},{title:'Zweiter'},{title:'Dritter'},{title:'Vierter'}]
   });
   data.createTask({id:'free',title:'Ohne Zuordnung',status:'in-progress',subtasks:[{title:'Freier Schritt'}]});
   const {dashboard,container} = makeDashboard(data);
@@ -114,22 +118,30 @@ test('dashboard renders completed and next subtasks and refreshes after task upd
   });
   dashboard.renderProjectProgress();
   assert.match(container.innerHTML,/Ohne Projekt/);
-  assert.match(container.innerHTML,/Nächste:<\/span> &lt;Erster&gt;/);
-  assert.match(container.innerHTML,/Teilaufgaben 0\/3/);
+  assert.match(container.innerHTML,/dashboard-subtasks/);
+  assert.match(container.innerHTML,/Aktuell:<\/span><span class="dashboard-subtask-title">&lt;Erster&gt;/);
+  assert.match(container.innerHTML,/Als Nächstes:<\/span><span class="dashboard-subtask-title">Zweiter/);
+  assert.match(container.innerHTML,/\+2 weitere Teilaufgaben anzeigen/);
+  assert.match(container.innerHTML,/Teilaufgaben 0\/4/);
 
+  container.expandedSubtaskTaskIds = ['task'];
   task.subtasks[0].completed = true;
   data.updateTask(task);
-  assert.match(container.innerHTML,/Erledigt:<\/span> &lt;Erster&gt;/);
-  assert.match(container.innerHTML,/Nächste:<\/span> Zweiter/);
-  assert.match(container.innerHTML,/Gesamtfortschritt 33%/);
+  assert.match(container.innerHTML,/Teilaufgaben 1\/4/);
+  assert.match(container.innerHTML,/Aktuell:<\/span><span class="dashboard-subtask-title">Zweiter/);
+  assert.match(container.innerHTML,/Als Nächstes:<\/span><span class="dashboard-subtask-title">Dritter/);
+  assert.match(container.innerHTML,/<details class="dashboard-subtasks-more" data-task-id="task" open>/);
+  assert.match(container.innerHTML,/Danach:<\/span><span class="dashboard-subtask-title">Vierter/);
+  assert.match(container.innerHTML,/Gesamtfortschritt 25%/);
   task.subtasks.forEach(item=>{item.completed=true;});
   data.updateTask(task);
   assert.match(container.innerHTML,/Gesamtfortschritt 100%/);
   assert.match(container.innerHTML,/Alle Teilaufgaben erledigt/);
   task.subtasks[0].completed = false;
   data.updateTask(task);
-  assert.match(container.innerHTML,/Nächste:<\/span> &lt;Erster&gt;/);
-  assert.doesNotMatch(container.innerHTML,/Erledigt:<\/span> &lt;Erster&gt;/);
+  assert.match(container.innerHTML,/Teilaufgaben 3\/4/);
+  assert.match(container.innerHTML,/Aktuell:<\/span><span class="dashboard-subtask-title">&lt;Erster&gt;/);
+  assert.doesNotMatch(container.innerHTML,/Als Nächstes:/);
 });
 
 test('team load shows the current and next subtask and lets users expand the remaining list',()=>{
@@ -149,17 +161,17 @@ test('team load shows the current and next subtask and lets users expand the rem
   dashboard.renderTeamLoad();
 
   const html = teamLoadContainer.innerHTML;
-  assert.match(html,/Aktuell:<\/span><span class="team-load-subtask-title">Aktueller Schritt/);
-  assert.match(html,/Als Nächstes:<\/span><span class="team-load-subtask-title">Nächster Schritt/);
-  assert.match(html,/class="team-load-subtasks-more"/);
+  assert.match(html,/Aktuell:<\/span><span class="dashboard-subtask-title">Aktueller Schritt/);
+  assert.match(html,/Als Nächstes:<\/span><span class="dashboard-subtask-title">Nächster Schritt/);
+  assert.match(html,/class="dashboard-subtasks-more"/);
   assert.match(html,/\+2 weitere Teilaufgaben anzeigen/);
-  assert.match(html,/Danach:<\/span><span class="team-load-subtask-title">Danach Schritt/);
-  assert.match(html,/Danach:<\/span><span class="team-load-subtask-title">Letzter Schritt/);
+  assert.match(html,/Danach:<\/span><span class="dashboard-subtask-title">Danach Schritt/);
+  assert.match(html,/Danach:<\/span><span class="dashboard-subtask-title">Letzter Schritt/);
   assert.ok(html.indexOf('Nächster Schritt') < html.indexOf('Danach Schritt'));
 
   teamLoadContainer.expandedSubtaskTaskIds = ['active'];
   dashboard.renderTeamLoad();
-  assert.match(teamLoadContainer.innerHTML,/<details class="team-load-subtasks-more" data-task-id="active" open>/);
+  assert.match(teamLoadContainer.innerHTML,/<details class="dashboard-subtasks-more" data-task-id="active" open>/);
 });
 
 test('project progress shows only tasks in progress, regardless of subtasks or recent activity',()=>{
@@ -182,5 +194,5 @@ test('project progress shows only tasks in progress, regardless of subtasks or r
   done.status = 'in-progress';
   data.updateTask(done);
   assert.match(container.innerHTML,/Erledigte Commits/);
-  assert.match(container.innerHTML,/Erledigt:<\/span> Commit/);
+  assert.match(container.innerHTML,/Alle Teilaufgaben erledigt/);
 });
