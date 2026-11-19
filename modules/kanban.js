@@ -536,6 +536,7 @@
   function persistTaskProgress(taskId, progressValue) {
     var task = window.DataLayer.getTaskById(taskId);
     if (!task) return false;
+    if (Array.isArray(task.subtasks) && task.subtasks.length) return false;
 
     var auth = getAuthManager();
     if (auth && typeof auth.canEditTask === 'function' && !auth.canEditTask(task)) return false;
@@ -1685,7 +1686,7 @@
     html += '<span class="kanban-progress-label">Fortschritt</span>';
     html += '<span class="kanban-progress-value" data-task-progress-label="' + escapeHtml(task.id) + '">' + progressValue + '%</span>';
     html += '</div>';
-    html += '<input type="range" min="0" max="100" step="1" class="kanban-progress-slider" draggable="false" data-task-progress-input="' + escapeHtml(task.id) + '" value="' + progressValue + '" aria-label="Fortschritt fuer ' + escapeHtml(task.title || 'Aufgabe') + '" ' + (editable ? '' : 'disabled') + '>';
+    html += '<input type="range" min="0" max="100" step="1" class="kanban-progress-slider" draggable="false" data-task-progress-input="' + escapeHtml(task.id) + '" value="' + progressValue + '" aria-label="Fortschritt fuer ' + escapeHtml(task.title || 'Aufgabe') + '"' + (subtaskStats.total ? ' title="Fortschritt wird aus den Teilaufgaben berechnet"' : '') + ' ' + (editable && !subtaskStats.total ? '' : 'disabled') + '>';
     html += '</div>';
 
     if (task.subtasks && task.subtasks.length > 0) {

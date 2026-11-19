@@ -2270,6 +2270,22 @@ body.light-mode .nav-menu li a:hover {
   font-weight: 500;
 }
 
+.project-progress-subtasks {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.15rem;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.project-progress-subtasks-count,
+.project-progress-subtask span {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
 .project-progress-item .project-head-progress {
   width: 100%;
   min-width: 0;

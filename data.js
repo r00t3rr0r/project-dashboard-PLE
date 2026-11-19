@@ -2126,7 +2126,6 @@
 
     normalizeTaskSchedule(task);
     normalizeTaskTimeTracking(task);
-    task.history = normalizeTaskHistory(task);
     refreshTaskDependencyState(task);
 
     if (!Array.isArray(task.subtasks)) task.subtasks = [];
@@ -2141,6 +2140,11 @@
       }
       return normalizeSubtask(st);
     }).filter(function (st) { return !!st.title; });
+    if (task.subtasks.length) {
+      var completedSubtasks = task.subtasks.filter(function (st) { return st.completed; }).length;
+      task.progress = Math.round(completedSubtasks / task.subtasks.length * 100);
+    }
+    task.history = normalizeTaskHistory(task);
 
     if (!Array.isArray(task.notes)) task.notes = [];
     task.notes = task.notes.map(normalizeTaskNote).filter(function (note) { return !!note.text; });

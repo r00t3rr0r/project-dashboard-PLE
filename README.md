@@ -9,9 +9,12 @@ Die Anwendung wurde umfassend modernisiert:
 - Komplettes UI-Redesign mit neuer Sidebar-, Toolbar- und Section-Architektur
 - Einheitliche Icon-Sprache ueber Material Symbols Rounded
 - Erweiterte Typografie mit IBM Plex Sans, Space Grotesk und JetBrains Mono
+- Dark Mode als Standard; eine gespeicherte Light-Mode-Auswahl bleibt erhalten
 - Designsystem-Layer ueber [theme-override.css](theme-override.css)
 - Konsolidierte Modal- und Komponenten-Styles in mehreren Modulen
 - Theme-Token-Dokumentation in [THEME-TOKENS-DARK.md](THEME-TOKENS-DARK.md)
+
+Bei Aufgaben mit Teilaufgaben wird der Aufgabenfortschritt automatisch aus dem Anteil der erledigten Teilaufgaben berechnet. Das Dashboard zeigt die erledigten und die erste offene Teilaufgabe; der Aufgabenstatus wird dadurch nicht automatisch geändert. Ohne Teilaufgaben bleibt der Fortschritt manuell einstellbar.
 
 ## Quickstart
 

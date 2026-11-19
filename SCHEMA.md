@@ -99,6 +99,7 @@ Alle folgenden Schlüssel speichern **JSON-encoded Arrays** (`[]`). Der Default-
 | `labels`      | `string[]` | Array von Label-IDs                           |
 | `urgency`     | `string`   | `"low"` \| `"normal"` \| `"high"` \| `"critical"` |
 | `effortHours` | `number`   | Geplanter Aufwand in Stunden                  |
+| `progress`    | `number`   | Aufgabenfortschritt in Prozent: bei Teilaufgaben gerundeter Anteil der erledigten Teilaufgaben, sonst manuell |
 | `schedule`    | `object`   | Terminlogik: `mode`, `deadline`, `fixedAt`, `rangeStart`, `rangeEnd` |
 | `githubCommitImport` | `object` | GitHub-Import mit `repository`, `since`, `until`, `shas` und optional `commits` fuer rueckwirkende Kalendereintraege |
 | `timeTracking` | `object`  | Arbeitszeit/Pausenstatus: `totalMinutes`, `activeStartedAt`, `inProgressConfirmedAt`, `isPaused`, `pausedAt`, `pauseReasonPending`, `lastPauseReason`, `minutesByDate`, `pauseHistory` |

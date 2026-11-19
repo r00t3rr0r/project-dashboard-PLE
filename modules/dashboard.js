@@ -1014,10 +1014,7 @@
 
     var isCollapsed = container.dataset.progressCollapsed === 'true';
 
-    var projectEntries = projects.map(function(project) {
-      var tasks = allTasks.filter(function(task) {
-        return task && String(task.projectId || '') === String(project.id || '');
-      });
+    function buildProgressEntry(project, tasks) {
       var relevantTasks = tasks.filter(function(task) {
         var status = normalizeTaskStatus(task);
         var isActive = status === 'in-progress';
@@ -1031,18 +1028,32 @@
         var legacyUpdatedToday = !history.length && task.updatedAt && getProjectProgressDateKey(task.updatedAt) === todayKey &&
           getProjectProgressDateKey(task.createdAt) !== todayKey;
 
-        return isActive || minutesToday > 0 || changedToday || completedToday || legacyUpdatedToday;
+        return isActive || minutesToday > 0 || changedToday || completedToday || legacyUpdatedToday ||
+          (Array.isArray(task.subtasks) && task.subtasks.length > 0);
       });
       var activeTasks = relevantTasks.filter(function(task) {
         return normalizeTaskStatus(task) === 'in-progress';
       });
 
       return { project: project, tasks: relevantTasks, activeTasks: activeTasks };
+    }
+
+    var projectEntries = projects.map(function(project) {
+      var tasks = allTasks.filter(function(task) {
+        return task && String(task.projectId || '') === String(project.id || '');
+      });
+      return buildProgressEntry(project, tasks);
     }).filter(function(entry) {
       return entry.activeTasks.some(function(task) {
         return getProjectProgressEmployees([task], false).length > 0;
+      }) || entry.tasks.some(function(task) {
+        return Array.isArray(task.subtasks) && task.subtasks.length > 0;
       });
     });
+    var unassignedTasks = allTasks.filter(function(task) {
+      return task && !task.projectId && Array.isArray(task.subtasks) && task.subtasks.length > 0;
+    });
+    if (unassignedTasks.length) projectEntries.push(buildProgressEntry(null, unassignedTasks));
 
     if (projectEntries.length === 0) {
       setHtmlIfChanged(container, '<h3>Projekt-Fortschritt</h3><p class="chart-empty">Heute keine Projektaufgaben in Bearbeitung.</p>');
@@ -1059,7 +1070,7 @@
       var project = entry.project;
       var tasks = entry.tasks;
       var activeTasks = entry.activeTasks;
-      var percent = getProjectProgressPercent(project);
+      var percent = project ? getProjectProgressPercent(project) : 0;
       var activeTask = activeTasks.length > 0;
       var toneClass = percent >= 75 ? 'is-strong' : (percent >= 40 ? 'is-mid' : 'is-low');
       var stateClass = activeTask ? 'is-running' : 'is-idle';
@@ -1067,21 +1078,23 @@
       html += '<article class="project-progress-item">';
       html += '<div class="project-progress-head">';
       html += '<div class="project-progress-head-main">';
-      html += '<span class="project-progress-title">' + escapeHtml(project.title || project.name) + '</span>';
+      html += '<span class="project-progress-title">' + escapeHtml(project ? (project.title || project.name) : 'Ohne Projekt') + '</span>';
       html += renderProjectProgressEmployees(getProjectProgressEmployees(activeTasks, false), 'project-progress-active-team');
       html += '</div>';
-      html += '<span class="project-progress-percent">' + percent + '%</span>';
+      if (project) html += '<span class="project-progress-percent">' + percent + '%</span>';
       html += '</div>';
-      html += '<div class="project-head-progress ' + toneClass + ' ' + stateClass + '">';
-      html += '<span class="project-head-progress-label">Aktueller Fortschritt</span>';
-      html += '<div class="project-head-progress-track" aria-hidden="true"><span class="project-head-progress-fill" style="--project-progress:' + percent + '%;"></span></div>';
-      html += '<div class="project-head-progress-meta">';
-      html += '<span class="project-head-progress-value">' + percent + '%</span>';
-      if (activeTask) {
-        html += '<span class="project-head-progress-live-dot" aria-label="Aktive Bearbeitung"></span><span class="project-head-progress-live-text">In Arbeit</span>';
+      if (project) {
+        html += '<div class="project-head-progress ' + toneClass + ' ' + stateClass + '">';
+        html += '<span class="project-head-progress-label">Aktueller Fortschritt</span>';
+        html += '<div class="project-head-progress-track" aria-hidden="true"><span class="project-head-progress-fill" style="--project-progress:' + percent + '%;"></span></div>';
+        html += '<div class="project-head-progress-meta">';
+        html += '<span class="project-head-progress-value">' + percent + '%</span>';
+        if (activeTask) {
+          html += '<span class="project-head-progress-live-dot" aria-label="Aktive Bearbeitung"></span><span class="project-head-progress-live-text">In Arbeit</span>';
+        }
+        html += '</div>';
+        html += '</div>';
       }
-      html += '</div>';
-      html += '</div>';
       html += '<div class="project-progress-tasks">';
       tasks.forEach(function(task) {
         var taskStatus = normalizeTaskStatus(task);
@@ -1091,18 +1104,31 @@
         var taskProgressToday = getTaskProgressToday(task, todayKey);
         var taskIsRunning = taskStatus === 'in-progress' && !tracking.isPaused;
         var taskToneClass = taskProgress >= 75 ? 'is-strong' : (taskProgress >= 40 ? 'is-mid' : 'is-low');
-        var activityLabel = taskStatus === 'in-progress' ? 'In Arbeit' : (minutesToday ? 'Heute · ' + minutesToday + ' min' : 'Heute bearbeitet');
+        var subtasks = Array.isArray(task.subtasks) ? task.subtasks : [];
+        var activityLabel = taskStatus === 'in-progress' ? 'In Arbeit' : (minutesToday ? 'Heute · ' + minutesToday + ' min' : (subtasks.length ? (taskStatus === 'done' ? 'Erledigt' : '') : 'Heute bearbeitet'));
         var taskEmployees = getProjectProgressEmployees([task], true);
 
         if (taskStatus === 'in-progress' && minutesToday) activityLabel += ' · ' + minutesToday + ' min heute';
         html += '<div class="project-progress-task">';
         html += '<div class="project-progress-task-head"><span class="project-progress-task-title" title="' + escapeHtml(task.title || 'Aufgabe') + '">' + escapeHtml(task.title || 'Aufgabe') + '</span>';
-        html += '<span class="project-progress-task-activity">' + escapeHtml(activityLabel) + '</span></div>';
+        if (activityLabel) html += '<span class="project-progress-task-activity">' + escapeHtml(activityLabel) + '</span>';
+        html += '</div>';
         if (taskEmployees.length) html += renderProjectProgressEmployees(taskEmployees, 'project-progress-task-workers');
         html += '<div class="project-progress-task-track' + (taskIsRunning ? ' is-running' : '') + (taskProgress === 0 ? ' is-empty' : '') + '" role="img" aria-label="Gesamtfortschritt ' + taskProgress + '%, heute plus ' + taskProgressToday + ' Prozentpunkte"><span class="project-progress-task-fill ' + taskToneClass + (taskIsRunning ? ' is-running' : '') + '" style="--task-progress:' + taskProgress + '%"></span>';
         if (taskProgressToday > 0) html += '<span class="project-progress-task-today" style="--task-progress-start:' + (taskProgress - taskProgressToday) + '%;--task-progress:' + taskProgressToday + '%"></span>';
         html += '</div>';
         html += '<span class="project-progress-task-value"><span>' + taskProgress + '%</span><small>+' + taskProgressToday + '% heute</small></span>';
+        if (subtasks.length) {
+          var completedSubtasks = subtasks.filter(function(subtask) { return subtask.completed; });
+          var nextSubtask = subtasks.find(function(subtask) { return !subtask.completed; });
+          html += '<div class="project-progress-subtasks">';
+          html += '<span class="project-progress-subtasks-count">Teilaufgaben ' + completedSubtasks.length + '/' + subtasks.length + '</span>';
+          completedSubtasks.forEach(function(subtask) {
+            html += '<div class="project-progress-subtask"><span>Erledigt:</span> ' + escapeHtml(subtask.title || 'Teilaufgabe') + '</div>';
+          });
+          html += '<div class="project-progress-subtask"><span>Nächste:</span> ' + escapeHtml(nextSubtask ? (nextSubtask.title || 'Teilaufgabe') : 'Alle Teilaufgaben erledigt') + '</div>';
+          html += '</div>';
+        }
         html += '</div>';
       });
       html += '</div>';
