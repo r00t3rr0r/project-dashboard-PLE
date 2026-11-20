@@ -99,8 +99,20 @@ function translateGitHubCommits(commits,project){
 }
 
 function formatGitHubCommitDraft(commits){
+  var titles=[];
+  commits.forEach(function(commit){
+    var title=String(commit.title||'').replace(/\s+/g,' ').trim();
+    if(title&&!titles.some(function(existing){return existing.toLowerCase()===title.toLowerCase();}))titles.push(title);
+  });
+  if(!titles.length)throw new Error('Fuer die Tagesaufgabe fehlen deutsche Commit-Titel.');
+  var displayed=titles.slice(0,2).map(function(title){
+    if(title.length<=60)return title;
+    var shortened=title.slice(0,59);
+    var boundary=shortened.lastIndexOf(' ');
+    return (boundary>29?shortened.slice(0,boundary):shortened)+'…';
+  });
   return {
-    title:'GitHub-Commits dokumentieren',
+    title:displayed.join(' · ')+(titles.length>displayed.length?' (+'+(titles.length-displayed.length)+' weitere Commit-Titel)':''),
     description:'Nachtraegliche Dokumentation der GitHub-Commits.\n\nCommits:\n'+commits.map(function(commit){
       return commit.sha+' ('+commit.author+')'
         +'\nDE: '+commit.title+'\n'+commit.descriptionDe

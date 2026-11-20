@@ -1669,6 +1669,35 @@ textarea#retro-notes {
   gap: 0.55rem;
 }
 
+.calendar-activity-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.4rem;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-activity-project .material-symbols-rounded {
+  font-size: 0.9rem;
+}
+
+.calendar-activity-project > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .calendar-activity-workplace {
   padding: 0.2rem 0.45rem;
   border-radius: 999px;

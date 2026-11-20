@@ -687,6 +687,7 @@
     var chip = document.createElement('div');
     var meta = getActivityTypeMeta(activity.type);
     var assigneeName = activity.assigneeId ? getEmployeeName(activity.assigneeId) : 'Nicht zugewiesen';
+    var projectLabel = getProjectLabel(activity.projectId) || 'Ohne Projekt';
     var workplace = activity.assigneeId ? getEmployeeWorkplace(activity.assigneeId) : '';
     var metaParts = [meta.label, assigneeName];
     if (workplace) metaParts.push(workplace);
@@ -701,6 +702,11 @@
     var titleEl = document.createElement('strong');
     titleEl.className = 'calendar-event-chip-title';
     titleEl.textContent = activity.taskTitle || 'Aufgabe';
+
+    var projectEl = document.createElement('span');
+    projectEl.className = 'calendar-activity-project';
+    projectEl.textContent = activity.projectId ? 'Projekt: ' + projectLabel : projectLabel;
+    projectEl.title = projectEl.textContent;
 
     var metaEl = document.createElement('span');
     metaEl.className = 'calendar-event-chip-meta';
@@ -722,13 +728,14 @@
 
     growthBar.appendChild(totalFill);
 
+    chip.appendChild(projectEl);
     chip.appendChild(titleEl);
     chip.appendChild(metaEl);
     chip.appendChild(gainEl);
     chip.appendChild(growthBar);
 
     requestAnimationFrame(function () {
-      updateChipTooltip(chip, titleEl, (activity.taskTitle || 'Aufgabe') + ' | ' + metaParts.join(' | ') + (activity.type === 'github-commit' ? ' | Rueckwirkende Dokumentation' : ' | Gesamt ' + totalProgress + '% | Plus +' + dayGain + '%'));
+      updateChipTooltip(chip, titleEl, projectEl.textContent + ' | ' + (activity.taskTitle || 'Aufgabe') + ' | ' + metaParts.join(' | ') + (activity.type === 'github-commit' ? ' | Rueckwirkende Dokumentation' : ' | Gesamt ' + totalProgress + '% | Plus +' + dayGain + '%'));
     });
 
     return chip;
@@ -1453,7 +1460,7 @@
         var typeMeta = getActivityTypeMeta(activity.type);
         var assigneeName = activity.assigneeId ? getEmployeeName(activity.assigneeId) : 'Nicht zugewiesen';
         var workplace = activity.assigneeId ? getEmployeeWorkplace(activity.assigneeId) : '';
-        var projectLabel = getProjectLabel(activity.projectId);
+        var projectLabel = getProjectLabel(activity.projectId) || 'Ohne Projekt';
         var displayTime = activity.calendarTime || getDisplayTime(activity.updatedAt);
         var totalProgress = clampProgress(activity.progress);
         var dayStart = clampProgress(activity.dayStartProgress);
@@ -1465,8 +1472,9 @@
           '<span class="calendar-event-tag" style="border-color:' + typeMeta.color + ';color:' + typeMeta.color + '">' + escapeHtml(typeMeta.label) + '</span>' +
           '<span class="calendar-event-date">' + escapeHtml(getTaskStatusLabel(activity.status)) + '</span>' +
           '</div>' +
+          '<div class="calendar-activity-project"><span class="material-symbols-rounded" aria-hidden="true">folder</span><span>' + escapeHtml(activity.projectId ? 'Projekt: ' + projectLabel : projectLabel) + '</span></div>' +
           '<h3>' + escapeHtml(activity.taskTitle || 'Aufgabe') + '</h3>' +
-          '<div class="calendar-event-meta">' + escapeHtml(assigneeName + (projectLabel ? ' • ' + projectLabel : '')) + '</div>' +
+          '<div class="calendar-event-meta">' + escapeHtml(assigneeName) + '</div>' +
           (workplace ? '<div class="calendar-activity-workplace"><span class="material-symbols-rounded" aria-hidden="true">location_on</span><span>' + escapeHtml(workplace) + '</span></div>' : '') +
           '<div class="calendar-activity-progress-row"><span>Gesamtfortschritt</span><strong>' + escapeHtml(String(totalProgress)) + '%</strong></div>' +
           '<div class="calendar-activity-growth-bar" aria-hidden="true">' +
