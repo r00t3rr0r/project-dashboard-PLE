@@ -328,8 +328,10 @@ im Tagesfeld fuer den jeweiligen Tag, in der Terminliste fuer den angezeigten
 Monat. Jede Gruppe zeigt ihre Commit-Anzahl und die drei neuesten Eintraege;
 weitere lassen sich aufklappen. Einzelne Commit-Details bleiben erreichbar,
 und Mitarbeiter- sowie Terminartfilter gelten vor der Gruppierung.
-Im Arbeitsfluss erscheint die Tagesaufgabe am Commit-Tag als rueckwirkende
-Dokumentation, ohne einen kuenstlichen Fortschrittsgewinn anzugeben.
+Im Arbeitsfluss werden Commits ebenfalls pro Projekt und Commit-Tag gebuendelt
+und nach Mitarbeiter gefiltert; die drei neuesten sind direkt sichtbar, weitere
+aufklappbar. Die rueckwirkende Dokumentation erzeugt keinen kuenstlichen
+Fortschrittsgewinn. Andere Aufgabenaktivitaeten bleiben separat sichtbar.
 Kalenderfelder und Detailkarten im Arbeitsfluss zeigen das zugehoerige Projekt
 auch fuer andere Aufgaben sichtbar an; nicht zugeordnete Aufgaben sind als
 "Ohne Projekt" gekennzeichnet.

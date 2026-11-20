@@ -734,7 +734,24 @@
     return items;
   }
 
-  function createCommitGroup(group, compact) {
+  function createProjectBadge(projectId) {
+    var badge = document.createElement('span');
+    badge.className = 'calendar-activity-project';
+    var label = getProjectLabel(projectId, 'Unbekanntes Projekt') || 'Ohne Projekt';
+    var text = projectId ? 'Projekt: ' + label : label;
+    badge.title = text;
+    var icon = document.createElement('span');
+    icon.className = 'material-symbols-rounded';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = 'folder';
+    var name = document.createElement('span');
+    name.textContent = text;
+    badge.appendChild(icon);
+    badge.appendChild(name);
+    return badge;
+  }
+
+  function createCommitGroup(group, compact, activityMode) {
     var container = document.createElement('section');
     container.className = 'calendar-commit-group' + (compact ? ' calendar-commit-group--compact' : '');
     container.addEventListener('click', function (event) { event.stopPropagation(); });
@@ -742,19 +759,9 @@
 
     var heading = document.createElement('div');
     heading.className = 'calendar-commit-group-heading';
-    var project = document.createElement('strong');
-    project.className = 'calendar-commit-group-project';
-    var projectLabel = getProjectLabel(group.projectId, 'Unbekanntes Projekt') || 'Ohne Projekt';
-    project.title = 'Projekt: ' + projectLabel;
-    var projectKind = document.createElement('span');
-    projectKind.className = 'calendar-commit-project-label';
-    projectKind.textContent = 'Projekt';
-    var projectName = document.createElement('span');
-    projectName.textContent = projectLabel;
-    project.appendChild(projectKind);
-    project.appendChild(projectName);
-    heading.appendChild(project);
+    heading.appendChild(createProjectBadge(group.projectId));
     var count = document.createElement('span');
+    count.className = 'calendar-commit-group-count';
     count.textContent = group.events.length + (group.events.length === 1 ? ' Commit' : ' Commits');
     heading.appendChild(count);
     container.appendChild(heading);
@@ -795,6 +802,12 @@
       group.events.slice(3).forEach(function (event) { appendCommit(details, event); });
       container.appendChild(details);
     }
+    if (activityMode && !compact) {
+      var note = document.createElement('div');
+      note.className = 'calendar-activity-progress-row calendar-activity-progress-row-sub';
+      note.textContent = 'Rueckwirkende Dokumentation; keine Arbeitsdauer erfasst.';
+      container.appendChild(note);
+    }
     return container;
   }
 
@@ -819,18 +832,8 @@
     titleEl.className = 'calendar-event-chip-title';
     titleEl.textContent = activity.taskTitle || 'Aufgabe';
 
-    var projectEl = document.createElement('span');
-    projectEl.className = 'calendar-activity-project';
     var projectText = activity.projectId ? 'Projekt: ' + projectLabel : projectLabel;
-    projectEl.title = projectText;
-    var projectIcon = document.createElement('span');
-    projectIcon.className = 'material-symbols-rounded';
-    projectIcon.setAttribute('aria-hidden', 'true');
-    projectIcon.textContent = 'folder';
-    var projectName = document.createElement('span');
-    projectName.textContent = projectText;
-    projectEl.appendChild(projectIcon);
-    projectEl.appendChild(projectName);
+    var projectEl = createProjectBadge(activity.projectId);
 
     var metaEl = document.createElement('span');
     metaEl.className = 'calendar-event-chip-meta';
@@ -1314,6 +1317,50 @@
     });
   }
 
+  function buildWorkflowDays(activities, events, commitDates) {
+    var days = Object.create(null);
+    var allTaskDays = Object.create(null);
+    var visibleTaskDays = Object.create(null);
+
+    function dayFor(date) {
+      if (!days[date]) days[date] = { activities: [], commits: [], items: [] };
+      return days[date];
+    }
+
+    events.forEach(function (event) {
+      if (event.source !== 'github-commit') return;
+      var date = String(event.date || event.startDate || '');
+      if (!date) return;
+      var taskKey = String(event.taskId || '') + '\n' + date;
+      if (event.taskId) allTaskDays[taskKey] = true;
+      if (!eventMatchesEmployeeFilter(event, selectedEmployeeId)) return;
+      if (event.taskId) visibleTaskDays[taskKey] = true;
+      dayFor(date).commits.push(event);
+    });
+
+    activities.forEach(function (activity) {
+      var taskKey = String(activity.taskId || '') + '\n' + activity.date;
+      var represented = activity.type === 'github-commit' && allTaskDays[taskKey];
+      if (represented && !visibleTaskDays[taskKey]) return;
+      var day = dayFor(activity.date);
+      day.activities.push(activity);
+      if (!represented) day.items.push(activity);
+    });
+
+    Object.keys(days).forEach(function (date) {
+      var day = days[date];
+      day.items = day.items.concat(groupCommitEvents(day.commits, commitDates));
+      day.items.sort(function (a, b) {
+        function time(item) {
+          return item.commitGroup ? String(item.events[0].startTime || '') :
+            String(item.calendarTime || getDisplayTime(item.updatedAt) || '');
+        }
+        return time(b).localeCompare(time(a));
+      });
+    });
+    return days;
+  }
+
   function renderCalendar(date) {
     try {
       if (!date) date = currentViewDate || new Date();
@@ -1341,14 +1388,16 @@
         grid.appendChild(headerCell);
       });
 
-      var visibleEvents = filterEventsByType(filterEventsByEmployee(getCalendarEvents().slice().sort(sortEvents)));
+      var allEvents = getCalendarEvents();
+      var visibleEvents = filterEventsByType(filterEventsByEmployee(allEvents.slice().sort(sortEvents)));
       var legendEvents = filterEventsByEmployee(getCalendarEvents()).filter(function (evt) {
         return isDateInMonth(String(evt.date || evt.startDate || ''), currentViewDate);
       });
       renderTypeLegend(legendEvents);
       renderPendingInvites();
       var activityEntries = buildTaskActivityEntries();
-      var commitDates = isActivityMode ? null : getCommitEventDates();
+      var commitDates = getCommitEventDates();
+      var workflowDays = isActivityMode ? buildWorkflowDays(activityEntries, allEvents, commitDates) : null;
       var overflowDaysCount = 0;
 
       var startOffset = getFirstDayOfMonth(year, month);
@@ -1365,20 +1414,11 @@
 
       for (var day = 1; day <= daysInMonth; day++) {
         var dateStr = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
-        var dayItems = (isActivityMode ? activityEntries : visibleEvents).filter(function (item) {
-          return isActivityMode
-            ? String(item.date || '') === dateStr
-            : String(item.date || item.startDate || '') === dateStr;
+        var dayItems = isActivityMode ? (workflowDays[dateStr] ? workflowDays[dateStr].items : []) : visibleEvents.filter(function (item) {
+          return String(item.date || item.startDate || '') === dateStr;
         });
 
-        if (isActivityMode) {
-          dayItems.sort(function (a, b) {
-            var bTs = getSortableTimestamp(b.updatedAt);
-            var aTs = getSortableTimestamp(a.updatedAt);
-            if (bTs !== aTs) return bTs - aTs;
-            return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
-          });
-        } else {
+        if (!isActivityMode) {
           dayItems = groupCommitEvents(dayItems, commitDates);
         }
 
@@ -1406,7 +1446,7 @@
 
         var itemsToRender = isExpanded ? dayItems : dayItems.slice(0, 3);
         itemsToRender.forEach(function (item) {
-          eventList.appendChild(isActivityMode ? createDayActivityChip(item) : (item.commitGroup ? createCommitGroup(item, true) : createDayEventChip(item)));
+          eventList.appendChild(item.commitGroup ? createCommitGroup(item, true, isActivityMode) : (isActivityMode ? createDayActivityChip(item) : createDayEventChip(item)));
         });
 
         if (hasOverflow && !isExpanded) {
@@ -1424,7 +1464,7 @@
 
       updateOverflowToggleButton(overflowDaysCount);
 
-      if (isActivityMode) renderActivityList(currentViewDate, activityEntries);
+      if (isActivityMode) renderActivityList(currentViewDate, activityEntries, workflowDays);
       else renderEventList(currentViewDate, visibleEvents, commitDates);
     } catch (err) {
       console.error('[Calendar] Error:', err);
@@ -1533,21 +1573,22 @@
       '</article>';
   }
 
-  function renderActivityList(viewDate, activities) {
+  function renderActivityList(viewDate, activities, workflowDays) {
     var listEl = document.getElementById('calendar-events-list');
     if (!listEl) return;
     listEl.innerHTML = '';
 
-    var monthActivities = activities.filter(function (activity) {
-      return isDateInMonth(activity.date, viewDate);
-    });
+    workflowDays = workflowDays || buildWorkflowDays(activities, getCalendarEvents(), getCommitEventDates());
+    var monthDates = Object.keys(workflowDays).filter(function (date) { return isDateInMonth(date, viewDate); }).sort().reverse();
+    var monthActivities = [];
+    monthDates.forEach(function (date) { monthActivities = monthActivities.concat(workflowDays[date].activities); });
 
     var heading = document.createElement('div');
     heading.className = 'calendar-events-list-heading';
     heading.textContent = 'Arbeitsfluss im ' + getMonthLabel(viewDate) + (getSelectedEmployeeName() ? ' - ' + getSelectedEmployeeName() : '');
     listEl.appendChild(heading);
 
-    if (!monthActivities.length) {
+    if (!monthDates.length) {
       var empty = document.createElement('div');
       empty.className = 'calendar-empty-state';
       empty.textContent = selectedEmployeeId
@@ -1561,19 +1602,8 @@
 
     listEl.insertAdjacentHTML('beforeend', buildActivitySummaryHtml(monthActivities));
 
-    var groups = Object.create(null);
-    monthActivities.forEach(function (activity) {
-      if (!groups[activity.date]) groups[activity.date] = [];
-      groups[activity.date].push(activity);
-    });
-
-    Object.keys(groups).sort().reverse().forEach(function (dateKey) {
-      var dailyActivities = groups[dateKey].slice().sort(function (a, b) {
-        var bTs = getSortableTimestamp(b.updatedAt);
-        var aTs = getSortableTimestamp(a.updatedAt);
-        if (bTs !== aTs) return bTs - aTs;
-        return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
-      });
+    monthDates.forEach(function (dateKey) {
+      var dailyActivities = workflowDays[dateKey].activities;
       var uniqueEmployees = Object.create(null);
       var completedToday = 0;
 
@@ -1587,11 +1617,16 @@
       dayHeading.innerHTML = '' +
         '<strong>' + escapeHtml(getDisplayDate(dateKey)) + '</strong>' +
         '<span>' + dailyActivities.length + ' Aktivitaeten</span>' +
+        (workflowDays[dateKey].commits.length ? '<span>' + workflowDays[dateKey].commits.length + ' Commits</span>' : '') +
         '<span>' + Object.keys(uniqueEmployees).length + ' Mitarbeiter</span>' +
         '<span>' + completedToday + ' erledigt</span>';
       listEl.appendChild(dayHeading);
 
-      dailyActivities.forEach(function (activity) {
+      workflowDays[dateKey].items.forEach(function (activity) {
+        if (activity.commitGroup) {
+          listEl.appendChild(createCommitGroup(activity, false, true));
+          return;
+        }
         var card = document.createElement('article');
         var typeMeta = getActivityTypeMeta(activity.type);
         var assigneeIds = Array.isArray(activity.assigneeIds) && activity.assigneeIds.length ? activity.assigneeIds : (activity.assigneeId ? [activity.assigneeId] : []);

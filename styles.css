@@ -1625,44 +1625,13 @@ textarea#retro-notes {
   font-size: 0.8rem;
 }
 
-.calendar-commit-group-project {
-  display: flex;
-  flex-direction: column;
-  width: fit-content;
-  max-width: 100%;
-  min-width: 0;
-  padding: 0.2rem 0.35rem;
-  border: 1px solid var(--border-color);
-  border-left: 2px solid var(--accent-blue);
-  border-radius: 0.35rem;
-  background: rgba(74, 158, 255, 0.12);
-  overflow-wrap: anywhere;
-  line-height: 1.25;
-}
-
-.calendar-commit-project-label {
-  color: var(--text-primary);
-  font-size: 0.6rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.calendar-commit-group-heading > span {
+.calendar-commit-group-count {
   color: var(--text-muted);
   white-space: nowrap;
 }
 
 .calendar-commit-group--compact .calendar-commit-group-heading {
   font-size: 0.68rem;
-}
-
-.calendar-commit-group--compact .calendar-commit-group-project {
-  padding: 0.15rem;
-  font-size: 0.65rem;
-}
-
-.calendar-commit-group--compact .calendar-commit-project-label {
-  font-size: 0.55rem;
 }
 
 .calendar-commit-item {
