@@ -263,19 +263,23 @@ Historie des Standard-Branches bis zum Abrufzeitpunkt. Bereits im Projekt
 dokumentierte SHAs aus QuickTask oder AI Conf werden ausgelassen; nicht
 ausgewaehlte Commits bleiben fuer einen spaeteren Abruf verfuegbar. Ollama
 uebersetzt die vollstaendige Nachricht unabhaengig von der Ausgangssprache,
-auch aus dem Tuerkischen, nach Deutsch und Englisch. Die Aufgabe enthaelt
-beide Uebersetzungen und das Original; die ausgewaehlten SHAs werden erst
-beim Erstellen gespeichert. Unvollstaendige oder nicht eindeutig zuordenbare
-Uebersetzungen fuehren zu einer Fehlermeldung. KI-Ausgaben bitte pruefen.
+auch aus dem Tuerkischen, nach Deutsch und Englisch. Fuer jeden lokalen
+Commit-Tag entsteht eine eigene erledigte Aufgabe mit den ausgewaehlten Commits
+als erledigten Teilaufgaben. Titel, Beschreibung und Teilaufgaben koennen pro
+Tag bearbeitet werden; jede Teilaufgabe muss die zugehoerige vollstaendige SHA
+enthalten. Planung, Aufwand, Labels, Zuweisung und hochgeladene Dateien gelten
+fuer jede Tagesaufgabe. Die Beschreibung enthaelt beide Uebersetzungen und das
+Original. Die ausgewaehlten SHAs werden erst beim Erstellen gespeichert.
+Unvollstaendige oder nicht eindeutig zuordenbare Uebersetzungen fuehren zu
+einer Fehlermeldung. KI-Ausgaben bitte pruefen.
 
 ### Erledigte Aufgaben aus GitHub (AI Conf)
 
 Im operativen Assistenten ein mit GitHub verknuepftes Projekt auswaehlen und
 "Erledigte Aufgaben aus GitHub" starten. Der Assistent laedt alle Seiten der
-Commits des Standardbranches seit dem letzten bekannten Import (hoechstes
-gespeichertes `until` fuer Projekt und Repository) bis jetzt. Dadurch sind
-beliebige Zeitraeume zwischen zwei Importen mit einer Abfrage abgedeckt. Ohne
-frueheren Import wird die gesamte Commit-Historie geladen. Private Repositories
+Commit-Historie des Standardbranches bis zum Abrufzeitpunkt und filtert
+bereits dokumentierte SHAs aus. Nicht ausgewaehlte oder spaeter hinzugekommene
+Commits bleiben dadurch auch bei aelterem Commit-Zeitpunkt verfuegbar. Private Repositories
 verwenden den GitHub-Token des angemeldeten Mitarbeiters; der Token wird nicht
 an die KI gesendet.
 
@@ -287,29 +291,36 @@ unvollstaendig sein, besonders mit kleinen Modellen, und muessen geprueft werden
 Fehlende, leere oder nicht eindeutig anhand der SHA zuordenbare Uebersetzungen
 stoppen die Vorbereitung mit einer Fehlermeldung statt einer stillen Ersetzung.
 Erst nach Pruefung und Auswahl oeffnet sich der vorausgefuellte Dialog
-"Neue Aufgabe". Aufgabe und Teilaufgaben lassen sich dort vor dem Speichern
-bearbeiten. Erst beim Speichern wird die Projektaufgabe mit `status: done`,
-`progress: 100` und erledigten Teilaufgaben (`completed: true`) angelegt.
+"Neue Aufgabe". Fuer jeden lokalen Commit-Tag wird eine eigene Projektaufgabe
+mit `status: done`, `progress: 100` und erledigten Teilaufgaben
+(`completed: true`) vorbereitet; Titel, Beschreibungen und Teilaufgaben sind
+vor dem Speichern bearbeitbar.
 Teilaufgaben enthalten beide Titel (`DE: ... · EN: ... [sha]`); die Beschreibung
 enthaelt beide uebersetzten Nachrichten, das Original, SHA, Autor, Zeitpunkt und
 GitHub-Link. Commits dokumentieren Aenderungen, nicht automatisch erfolgreiche
 Tests oder Abnahmen. Bereits gespeicherte Aufgaben werden nicht umuebersetzt.
 
-`task.githubCommitImport` speichert `repository`, `since` (leer beim ersten
-Import ueber die gesamte Historie), `until`, `shas` und fuer neue Importe
-strukturierte `commits`. Beim Speichern entsteht pro ausgewaehltem Commit ein
+`task.githubCommitImport` speichert `repository`, `dailyTaskDate`, `shas` und
+strukturierte `commits`; AI Conf speichert ausserdem den Abrufzeitpunkt `until`.
+Beim Speichern entsteht pro ausgewaehltem Commit ein
 mit der Aufgabe verknuepfter Kalendereintrag in der Terminansicht. Datum und
 Uhrzeit entsprechen dem GitHub-Committer-Zeitpunkt in der lokalen Zeitzone des
 importierenden Browsers und bleiben danach unveraendert. Der Eintrag nennt den
 GitHub-Autor und dokumentiert weder Arbeitsdauer noch Mitarbeiterzuweisung:
 Im Mitarbeiterfilter erscheint er daher unter „Ohne Mitarbeiter“. Eintraege
 werden mit der Aufgabe synchronisiert und beim Loeschen der Aufgabe entfernt.
+Im Arbeitsfluss erscheint die Tagesaufgabe am Commit-Tag als rueckwirkende
+Dokumentation, ohne einen kuenstlichen Fortschrittsgewinn anzugeben.
+Das tatsaechliche Erstellungsdatum der Aufgabe bleibt erhalten. Die
+Tagesaufgaben werden gemeinsam gespeichert; ein Speicherfehler wird im
+Aufgabendialog angezeigt. Die Aufgaben- und Kalenderdaten sind separate
+Speicherschluessel und daher keine gemeinsame Datenbanktransaktion.
 Fruehere Importe ohne strukturierte Commit-Daten werden nicht nachgetragen.
 Bereits ueber diese Funktion importierte SHAs werden fuer dasselbe Projekt und
 Repository beim Abruf und vor der Uebernahme ausgefiltert. Das ist kein
 serverseitiger Eindeutigkeitsschutz gegen gleichzeitige Importe mehrerer Nutzer.
 
-Regressionstests: `node --test scripts/test_ai_conf_commits.js` und
+Regressionstests: `node --test scripts/test_quicktask_github_commits.js scripts/test_ai_conf_commits.js` und
 `python3 -m unittest scripts.test_storage_concurrency.GitHubCommitQueryTest`.
 Nach Serveraenderungen den Storage-Server neu starten.
 

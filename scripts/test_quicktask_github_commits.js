@@ -18,7 +18,7 @@ function harness() {
   vm.runInNewContext(aiSource,sandbox);
   const quickSource=fs.readFileSync(path.join(__dirname,'../modules/quicktask.js'),'utf8').replace(
     'window.QuickTaskModule={',
-    'window.testQuickTask={fetchQuickTaskGitHubCommits,translateGitHubCommits,formatGitHubCommitDraft,getGitHubCommitDocumentationTaskId}; window.QuickTaskModule={'
+    'window.testQuickTask={fetchQuickTaskGitHubCommits,translateGitHubCommits,formatGitHubCommitDraft,groupGitHubCommitsByDay,getGitHubCommitDocumentationTaskId}; window.QuickTaskModule={'
   );
   vm.runInNewContext(quickSource,sandbox);
   return {project,tasks,requests,window,sandbox,api:window.testQuickTask};
@@ -102,7 +102,7 @@ test('surfaces GitHub errors and malformed responses',async()=>{
   await assert.rejects(h.api.fetchQuickTaskGitHubCommits(h.project),/keine gueltige Commit-Liste/);
 });
 
-test('only selected commits become task metadata after applying the preview',async()=>{
+function modalHarness() {
   const h=harness(),elements={},created=[];
   function element(id) {
     if(!elements[id])elements[id]={
@@ -121,7 +121,9 @@ test('only selected commits become task metadata after applying the preview',asy
   h.sandbox.alert=message=>{throw new Error(message);};
   Object.assign(h.window.DataLayer,{
     getProjects:()=>[h.project],getEmployees:()=>[],getLabels:()=>[],
-    generateId:()=>Math.random().toString(),createTask:task=>{created.push(task);return task;}
+    generateId:()=>Math.random().toString(),createTask:task=>{created.push(task);h.tasks.push(task);task.id='task'+created.length;return task;},
+    createTasks:tasks=>tasks.map(task=>h.window.DataLayer.createTask(task)),
+    waitForTaskAndCalendarSave:()=>Promise.resolve(true)
   });
   h.window.AuthManager.getMode=()=> 'admin';
   h.window.closeModal=()=>{};
@@ -129,6 +131,11 @@ test('only selected commits become task metadata after applying the preview',asy
     note:entry.sha,titleDe:'Anmeldung korrigiert',titleEn:'Fixed login',
     descriptionDe:'Deutsche Nachricht',descriptionEn:'English message'
   }))}})};
+  return {h,element,created};
+}
+
+test('only selected commits become task metadata after applying the preview',async()=>{
+  const {h,element,created}=modalHarness();
   h.sandbox.fetch=async()=>({ok:true,json:async()=>[commit(1),commit(2)]});
   h.window.QuickTaskModule.open();
   element('qtm-project').value='p1';
@@ -144,4 +151,138 @@ test('only selected commits become task metadata after applying the preview',asy
   assert.equal(created.length,1);
   assert.equal(created[0].sourceCommitShas.join(','),commit(1).sha);
   assert.match(created[0].subtasks[0].title,/DE: Anmeldung korrigiert \| EN: Fixed login/);
+});
+
+test('creates a completed task per local commit day and linked chronological calendar entries',async()=>{
+  const previousTz=process.env.TZ;
+  process.env.TZ='Europe/Berlin';
+  try {
+    const {h,element,created}=modalHarness();
+    const items=[commit(1),commit(2),commit(3),commit(4)];
+    items[0].commit.committer.date='2020-01-01T22:30:00Z';
+    items[1].commit.committer.date='2020-01-01T23:30:00Z';
+    items[2].commit.committer.date='2020-01-02T08:30:00Z';
+    items[3].commit.committer.date='2020-01-03T08:30:00Z';
+    h.sandbox.fetch=async()=>({ok:true,json:async()=>items});
+    h.window.QuickTaskModule.open();
+    element('qtm-project').value='p1';
+    element('qtm-github-commits').click();
+    await new Promise(resolve=>setImmediate(resolve));
+    element('qtm-github-commit-review').querySelectorAll=()=>items.slice(0,3).map(item=>({getAttribute:()=>item.sha}));
+    element('qtm-github-create').click();
+    assert.match(element('qtm-title').value,/2020-01-01/);
+    assert.match(element('qtm-github-daily-drafts').innerHTML,/2020-01-02/);
+    const translated=items.slice(0,3).map(item=>({
+      sha:item.sha,date:item.commit.committer.date,author:'Alice',message:item.commit.message,
+      title:'Anmeldung korrigiert',titleEn:'Fixed login',descriptionDe:'Deutsche Nachricht',descriptionEn:'English message',
+      url:item.html_url
+    }));
+    const second=h.api.groupGitHubCommitsByDay(translated)[1];
+    element('qtm-github-title-1').value='Bearbeiteter Titel';
+    element('qtm-github-desc-1').value=second.draft.description;
+    element('qtm-github-subtasks-1').value=second.draft.subtasks.join('\n');
+    element('qt-submit').click();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(created.length,2);
+    assert.equal(created[0].githubCommitImport.dailyTaskDate,'2020-01-01');
+    assert.equal(created[1].githubCommitImport.dailyTaskDate,'2020-01-02');
+    assert.equal(created[1].title,'Bearbeiteter Titel');
+    assert.equal(created[0].sourceCommitShas.join(','),items[0].sha);
+    assert.equal(created[1].sourceCommitShas.join(','),[items[1].sha,items[2].sha].join(','));
+    assert(created.every(task=>task.status==='done'&&task.subtasks.every(subtask=>subtask.completed)));
+    assert(created.every(task=>Date.parse(task.createdAt)>Date.parse('2020-01-03')));
+
+    const storage=new Map();
+    const dataWindow={localStorage:{
+      getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,String(value)),
+      removeItem:key=>storage.delete(key),clear:()=>storage.clear(),key:index=>Array.from(storage.keys())[index]??null
+    }};
+    let dataSource=fs.readFileSync(path.join(__dirname,'../data.js'),'utf8')
+      .replace('function setStorageValue(key, value) {','function setStorageValue(key, value) { window.writeCounts[key]=(window.writeCounts[key]||0)+1;')
+      .replace('window.DataLayer.ready = runStartupHydration();','window.DataLayer.rehydrate = hydrateCollections; window.DataLayer.ready = Promise.resolve();')
+      .replace(/runStartupHydration\(\)\.finally\(function \(\) \{\s*startRemoteSyncLoop\(\);\s*startRemoteKvStream\(\);\s*\}\);/,'')
+      .replace("return fetchRemoteKv('POST', { key: key, value: value }).then(function (result) {","return Promise.resolve({ok:true}).then(function (result) {");
+    dataWindow.writeCounts={};
+    vm.runInNewContext(dataSource,{window:dataWindow,console,URL,Promise});
+    const data=dataWindow.DataLayer;
+    data.createTasks(created);
+    assert.equal(dataWindow.writeCounts.pd_tasks,1);
+    assert.equal(dataWindow.writeCounts.pd_calendar_events,1);
+    assert.equal(await data.waitForTaskAndCalendarSave(),true);
+    let events=data.getCalendarEvents();
+    assert.equal(events.length,3);
+    assert.equal(events[0].date,'2020-01-01');
+    assert.equal(events[0].startTime,'23:30');
+    assert.equal(events[1].date,'2020-01-02');
+    assert.equal(events[1].startTime,'00:30');
+    assert.equal(events[2].startTime,'09:30');
+    assert.equal(events[1].taskId,created[1].id);
+    const calendarWindow={DataLayer:data};
+    const calendarSource=fs.readFileSync(path.join(__dirname,'../modules/calendar.js'),'utf8')
+      .replace('window.CalendarModule = {','window.testActivities = buildTaskActivityEntries; window.CalendarModule = {');
+    vm.runInNewContext(calendarSource,{window:calendarWindow,document:{addEventListener(){}},console});
+    const activities=calendarWindow.testActivities();
+    assert.equal(activities.length,2);
+    assert.equal(activities[0].date,'2020-01-01');
+    assert.equal(activities[1].date,'2020-01-02');
+    assert(activities.every(activity=>activity.type==='github-commit'&&activity.dayProgressGain===0));
+    assert.equal(activities[1].calendarTime,'09:30');
+    const updated=data.getTaskById(created[0].id);
+    updated.title='Spaeter bearbeitet';
+    data.updateTask(updated);
+    const updatedActivities=calendarWindow.testActivities();
+    assert(updatedActivities.some(activity=>activity.date==='2020-01-01'&&activity.type==='github-commit'));
+    assert(updatedActivities.some(activity=>activity.date!=='2020-01-01'&&activity.type==='updated'));
+    data.tasks.length=0;data.calendarEvents.length=0;data.rehydrate();
+    events=data.getCalendarEvents();
+    assert.equal(events.length,3);
+    data.deleteTask(created[0].id);
+    assert.equal(data.getCalendarEvents().length,2);
+  } finally {
+    if(previousTz===undefined)delete process.env.TZ;
+    else process.env.TZ=previousTz;
+  }
+});
+
+test('AI Conf prefill creates editable daily drafts and rejects a missing commit subtask',async()=>{
+  const {h,element,created}=modalHarness();
+  const entries=[commit(1),commit(2)].map((item,index)=>({
+    sha:item.sha,date:`2020-01-0${index+1}T12:00:00Z`,author:'Alice',message:item.commit.message,
+    title:'Anmeldung korrigiert',titleEn:'Fixed login',descriptionDe:'Deutsche Nachricht',descriptionEn:'English message',
+    url:item.html_url
+  }));
+  h.window.QuickTaskModule.open({task:{projectId:'p1',status:'done'},githubCommits:entries});
+  assert.match(element('qtm-title').value,/2020-01-01/);
+  assert.match(element('qtm-github-daily-drafts').innerHTML,/2020-01-02/);
+  element('qtm-github-title-1').value='Tagesaufgabe';
+  element('qtm-github-desc-1').value='Beschreibung';
+  element('qtm-github-subtasks-1').value='Eintrag ohne SHA';
+  element('qt-submit').click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(created.length,0);
+  assert.match(element('qtm-ai-status').textContent,/SHA/);
+  element('qtm-github-subtasks-1').value='Commit '+entries[1].sha;
+  element('qt-submit').click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(created.length,2);
+  assert.equal(created[1].githubCommitImport.commits[0].sha,entries[1].sha);
+});
+
+test('reports persistence failure without closing the task editor',async()=>{
+  const {h,element}=modalHarness();
+  const item=commit(1);
+  h.window.DataLayer.waitForTaskAndCalendarSave=()=>Promise.resolve(false);
+  let closed=false;
+  h.window.closeModal=()=>{closed=true;};
+  h.sandbox.fetch=async()=>({ok:true,json:async()=>[item]});
+  h.window.QuickTaskModule.open();
+  element('qtm-project').value='p1';
+  element('qtm-github-commits').click();
+  await new Promise(resolve=>setImmediate(resolve));
+  element('qtm-github-commit-review').querySelectorAll=()=>[{getAttribute:()=>item.sha}];
+  element('qtm-github-create').click();
+  element('qt-submit').click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(closed,false);
+  assert.match(element('qtm-upload-status').textContent,/nicht dauerhaft gespeichert/);
 });

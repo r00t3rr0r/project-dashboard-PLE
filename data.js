@@ -466,6 +466,14 @@
     return pending || Promise.resolve(!dirtyRemoteSyncKeys[KEYS.employees]);
   }
 
+  function waitForTaskAndCalendarSave() {
+    return Promise.all([KEYS.tasks, KEYS.calendarEvents].map(function (key) {
+      return pendingStorageWrites[key] || Promise.resolve(!dirtyRemoteSyncKeys[key]);
+    })).then(function (results) {
+      return results.every(Boolean);
+    });
+  }
+
   function removeStorageValue(key) {
     var normalizedKey = normalizeStorageKey(key);
     if (isAuthSessionKey(normalizedKey)) {
@@ -2726,19 +2734,30 @@
 
   /** @param {Task} task */
   function createTask(task) {
+    return createTasks([task])[0];
+  }
+
+  function createTasks(newTasks) {
+    if (!Array.isArray(newTasks) || !newTasks.length) return [];
     var nowIso = new Date().toISOString();
-    if (!task.createdAt) task.createdAt = nowIso;
-    if (!task.updatedAt) task.updatedAt = task.createdAt;
-    task = normalizeTask(task);
-    updateTaskAssignmentResponses(task, null);
-    tasks.push(task);
+    var created = newTasks.map(function (task) {
+      if (!task.createdAt) task.createdAt = nowIso;
+      if (!task.updatedAt) task.updatedAt = task.createdAt;
+      task = normalizeTask(task);
+      updateTaskAssignmentResponses(task, null);
+      return task;
+    });
+    created.forEach(function (task) { tasks.push(task); });
     reconcileTaskDependencies();
-    var calendarChanged = syncTaskCalendarEvents(task);
+    var calendarChanged = false;
+    created.forEach(function (task) {
+      if (syncTaskCalendarEvents(task)) calendarChanged = true;
+    });
     saveTasks();
     if (calendarChanged) saveCalendarEvents();
     emitDataChanged('create', 'tasks');
     if (calendarChanged) emitDataChanged('sync', 'calendarEvents');
-    return task;
+    return created;
   }
 
   /** @param {string} id */
@@ -3233,6 +3252,8 @@
     getTasks:           getTasks,
     getTasksFiltered:   getTasksFiltered,
     createTask:         createTask,
+    createTasks:        createTasks,
+    waitForTaskAndCalendarSave: waitForTaskAndCalendarSave,
     getTaskById:        getTaskById,
     updateTask:         updateTask,
     deleteTask:         deleteTask,

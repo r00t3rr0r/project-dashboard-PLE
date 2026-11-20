@@ -30,7 +30,7 @@ function makeHarness() {
   };
   const source = fs.readFileSync(path.join(__dirname,'../modules/ai-conf.js'),'utf8').replace(
     'window.AIConfModule={render:render,getConfiguration:readConfig};',
-    'window.AIConfModule={fetchRecentCommits,translateCommitBatch,importCommitTask,importedCommitShas,lastImportedUntil,runCommitAssistant,saveConfig,getConfiguration:readConfig,setDraft:function(value){assistantDraft=value;}};'
+    'window.AIConfModule={fetchRecentCommits,translateCommitBatch,importCommitTask,importedCommitShas,runCommitAssistant,saveConfig,getConfiguration:readConfig,setDraft:function(value){assistantDraft=value;}};'
   );
   vm.runInNewContext(source,sandbox);
   return {api:window.AIConfModule,window,sandbox,project,tasks,requests,notifications,openedDrafts,root,host,select,button};
@@ -190,26 +190,21 @@ test('omits missing time filters and keeps commits outside a 24h window',async()
   assert.equal(query.get('until'),until);
 });
 
-test('derives since from the latest known import of the same project and repository',()=>{
+test('queries the entire history even after an import so unselected commits remain available',async()=>{
   const harness = makeHarness();
-  assert.equal(harness.api.lastImportedUntil('p1','acme/app'),'');
-  harness.tasks.push(
-    {projectId:'p1',githubCommitImport:{repository:'ACME/APP',until:'2026-11-10T08:00:00.000Z',shas:['aaa']}},
-    {projectId:'p1',githubCommitImport:{repository:'acme/app',until:'2026-11-14T09:30:00.000Z',shas:['bbb']}},
-    {projectId:'p1',githubCommitImport:{repository:'acme/other',until:'2026-11-16T00:00:00.000Z',shas:['ccc']}},
-    {projectId:'other',githubCommitImport:{repository:'acme/app',until:'2026-11-16T00:00:00.000Z',shas:['ddd']}},
-    {projectId:'p1',githubCommitImport:{repository:'acme/app',until:'kein datum',shas:['eee']}}
-  );
-  assert.equal(harness.api.lastImportedUntil('p1','acme/app'),'2026-11-14T09:30:00.000Z');
-});
-
-test('queries GitHub from the last import instead of a fixed 24h window',async()=>{
-  const harness = makeHarness();
-  harness.tasks.push({projectId:'p1',githubCommitImport:{repository:'acme/app',until:'2026-11-14T09:30:00.000Z',shas:['aaa']}});
+  const old=githubCommit(1,'2020-01-01T10:00:00Z');
+  const already=githubCommit(2,'2020-01-02T10:00:00Z');
+  harness.tasks.push({projectId:'p1',githubCommitImport:{repository:'acme/app',until:'2026-11-14T09:30:00.000Z',shas:[already.sha]}});
+  harness.sandbox.fetch=async(url,options)=>{
+    harness.requests.push({url,options});
+    return {ok:true,json:async()=>[old,already]};
+  };
   await harness.api.runCommitAssistant(harness.root);
   const query = new URL(harness.requests[0].url,'http://localhost').searchParams;
-  assert.equal(query.get('since'),'2026-11-14T09:30:00.000Z');
+  assert.equal(query.has('since'),false);
   assert(query.get('until'));
+  assert(harness.host.innerHTML.includes(old.sha));
+  assert(!harness.host.innerHTML.includes(already.sha));
 });
 
 test('rejects missing repository and GitHub errors; handles empty repository',async()=>{

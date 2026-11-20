@@ -263,20 +263,13 @@ function importedCommitShas(projectId,repository){
   var imported=new Set();
   (window.DataLayer.getTasks()||[]).forEach(function(task){
     var source=task.githubCommitImport;
-    if(task.projectId!==projectId||!source||String(source.repository).toLowerCase()!==repository.toLowerCase())return;
-    (source.shas||[]).forEach(function(sha){imported.add(sha);});
+    if(task.projectId!==projectId)return;
+    if(source&&String(source.repository).toLowerCase()===repository.toLowerCase()){
+      (source.shas||[]).forEach(function(sha){imported.add(sha);});
+    }
+    if(Array.isArray(task.sourceCommitShas))task.sourceCommitShas.forEach(function(sha){imported.add(sha);});
   });
   return imported;
-}
-function lastImportedUntil(projectId,repository){
-  var latest=0;
-  (window.DataLayer.getTasks()||[]).forEach(function(task){
-    var source=task.githubCommitImport;
-    if(task.projectId!==projectId||!source||String(source.repository).toLowerCase()!==repository.toLowerCase())return;
-    var timestamp=Date.parse(String(source.until||''));
-    if(isFinite(timestamp)&&timestamp>latest)latest=timestamp;
-  });
-  return latest?new Date(latest).toISOString():'';
 }
 function fetchRecentCommits(project,since,until){
   var github=project.github||{};
@@ -376,17 +369,17 @@ function runCommitAssistant(root){
   if(!window.LocalOllama||typeof window.LocalOllama.generate!=='function'){notify('Lokaler Ollama-Client ist nicht verfuegbar.',true);return;}
   var until=new Date().toISOString();
   var repository=String((project.github||{}).owner||'')+'/'+String((project.github||{}).repo||'');
-  var since=lastImportedUntil(project.id,repository);
+  var since='';
   var result=root.querySelector('#ai-assistant-result'),select=root.querySelector('#ai-assistant-project');
   assistantDraft={projectId:'',mode:'',items:[]};
   select.disabled=true;
   root.querySelectorAll('[data-assistant]').forEach(function(button){button.disabled=true;});
   result.hidden=false;
-  result.textContent=since?'GitHub-Commits seit dem letzten Import ('+new Date(since).toLocaleString('de-DE')+') werden geladen ...':'Alle GitHub-Commits werden geladen (erster Import) ...';
+  result.textContent='GitHub-Commits werden geladen und mit bereits dokumentierten Commits abgeglichen ...';
   return fetchRecentCommits(project,since,until).then(function(commits){
     var imported=importedCommitShas(project.id,repository);
     commits=commits.filter(function(commit){return !imported.has(commit.sha);});
-    if(!commits.length){result.textContent='Keine neuen Commits seit dem letzten Import gefunden (Standardbranch).';return null;}
+    if(!commits.length){result.textContent='Keine neuen Commits gefunden (Standardbranch).';return null;}
     var translated=[],chain=Promise.resolve();
     for(var offset=0;offset<commits.length;offset+=4){
       (function(batch){chain=chain.then(function(){
@@ -434,11 +427,13 @@ function importCommitTask(root){
       progress:100,
       githubCommitImport:{repository:assistantDraft.repository,since:assistantDraft.since,until:assistantDraft.until,shas:commits.map(function(commit){return commit.sha;}),commits:calendarCommits}
     },
+    githubCommits:calendarCommits,
     submitLabel:'Speichern',
-    onCreated:function(task){
+    onCreated:function(task,createdTasks){
       assistantDraft={projectId:'',mode:'',items:[]};renderAssistantDraft(root);
-      var completedCount=task&&Array.isArray(task.subtasks)?task.subtasks.filter(function(subtask){return subtask.completed;}).length:0;
-      notify('Erledigte Projektaufgabe mit '+completedCount+' erledigten Teilaufgaben gespeichert.',false);
+      var tasks=Array.isArray(createdTasks)?createdTasks:[task];
+      var completedCount=tasks.reduce(function(total,item){return total+(item&&Array.isArray(item.subtasks)?item.subtasks.filter(function(subtask){return subtask.completed;}).length:0);},0);
+      notify(String(tasks.length)+' erledigte Tagesaufgabe(n) mit '+completedCount+' erledigten Teilaufgaben gespeichert.',false);
     }
   });
 }
@@ -624,5 +619,6 @@ function bindEvents(root,config,models){
 }
 window.AIConfModule={render:render,getConfiguration:readConfig};
 window.AIConfModule.translateCommitBatch=translateCommitBatch;
+window.AIConfModule.commitCalendarData=commitCalendarData;
 window.addEventListener('localOllamaStatusChanged',function(event){syncActivityUI(event.detail);});
 })();

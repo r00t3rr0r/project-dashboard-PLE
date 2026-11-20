@@ -99,6 +99,7 @@
       started: { label: 'Start', color: 'var(--accent-yellow)' },
       progress: { label: 'Fortschritt', color: 'var(--accent-blue)' },
       completed: { label: 'Erledigt', color: 'var(--accent-green)' },
+      'github-commit': { label: 'GitHub-Commits (rueckwirkend)', color: 'var(--accent-green)' },
       reassigned: { label: 'Zuweisung', color: 'var(--accent-purple)' },
       'status-change': { label: 'Status', color: 'var(--accent-blue)' },
       updated: { label: 'Update', color: 'var(--accent-yellow)' }
@@ -485,12 +486,31 @@
       }
     }
 
+    var commitImport = task.githubCommitImport;
+    var dailyDate = commitImport && commitImport.dailyTaskDate;
+    var commits = commitImport && Array.isArray(commitImport.commits) ? commitImport.commits : [];
+    if (dailyDate && commits.length) {
+      var lastCommit = commits.filter(function (commit) {
+        return commit && commit.calendarDate === dailyDate && isFinite(Date.parse(commit.date));
+      }).sort(function (a, b) { return Date.parse(b.date) - Date.parse(a.date); })[0];
+      if (lastCommit) {
+        history = history.filter(function (entry) { return entry.type !== 'created'; });
+        history.push({
+          type: 'github-commit', at: lastCommit.date, calendarDate: dailyDate,
+          calendarTime: lastCommit.calendarTime, status: 'done', progress: 100,
+          assigneeId: task.assigneeId || ''
+        });
+      }
+    }
+
     return history
       .map(function (entry, index) {
         return {
           id: entry.id || (String(task.id || 'task') + '-hist-' + index),
           type: entry.type || 'updated',
           at: entry.at || '',
+          calendarDate: entry.calendarDate || '',
+          calendarTime: entry.calendarTime || '',
           status: entry.status || task.status || 'todo',
           progress: clampProgress(typeof entry.progress === 'number' ? entry.progress : task.progress),
           assigneeId: entry.assigneeId || task.assigneeId || ''
@@ -514,13 +534,13 @@
       var dayStartProgressByDate = Object.create(null);
 
       getTaskHistoryEntries(task).forEach(function (entry, index) {
-        var dateKey = getDateKeyFromValue(entry.at);
+        var dateKey = entry.calendarDate || getDateKeyFromValue(entry.at);
         if (!dateKey) return;
         var entryProgress = clampProgress(entry.progress);
         if (dayStartProgressByDate[dateKey] === undefined) {
           dayStartProgressByDate[dateKey] = previousProgress;
         }
-        var dayProgressGain = Math.max(0, entryProgress - dayStartProgressByDate[dateKey]);
+        var dayProgressGain = entry.type === 'github-commit' ? 0 : Math.max(0, entryProgress - dayStartProgressByDate[dateKey]);
         var dayGainSharePercent = entryProgress > 0
           ? Math.min(100, Math.round((dayProgressGain / entryProgress) * 100))
           : 0;
@@ -533,12 +553,13 @@
           type: entry.type || 'updated',
           status: entry.status || task.status || 'todo',
           progress: entryProgress,
-          dayStartProgress: dayStartProgressByDate[dateKey],
+          dayStartProgress: entry.type === 'github-commit' ? entryProgress : dayStartProgressByDate[dateKey],
           dayProgressGain: dayProgressGain,
           dayGainSharePercent: dayGainSharePercent,
           assigneeId: entry.assigneeId || task.assigneeId || '',
           projectId: task.projectId || null,
           updatedAt: entry.at || '',
+          calendarTime: entry.calendarTime || '',
           _timestamp: getSortableTimestamp(entry.at),
           _sequence: sequence++
         };
@@ -688,7 +709,9 @@
 
     var gainEl = document.createElement('span');
     gainEl.className = 'calendar-event-chip-gain';
-    gainEl.innerHTML = '<span>Gesamt ' + escapeHtml(String(totalProgress)) + '%</span><span class="calendar-progress-today">Plus +' + escapeHtml(String(dayGain)) + '%</span>';
+    gainEl.innerHTML = activity.type === 'github-commit'
+      ? '<span>Rueckwirkende Dokumentation</span>'
+      : '<span>Gesamt ' + escapeHtml(String(totalProgress)) + '%</span><span class="calendar-progress-today">Plus +' + escapeHtml(String(dayGain)) + '%</span>';
 
     var growthBar = document.createElement('span');
     growthBar.className = 'calendar-activity-growth-bar calendar-activity-growth-bar-mini';
@@ -705,7 +728,7 @@
     chip.appendChild(growthBar);
 
     requestAnimationFrame(function () {
-      updateChipTooltip(chip, titleEl, (activity.taskTitle || 'Aufgabe') + ' | ' + metaParts.join(' | ') + ' | Gesamt ' + totalProgress + '% | Plus +' + dayGain + '%');
+      updateChipTooltip(chip, titleEl, (activity.taskTitle || 'Aufgabe') + ' | ' + metaParts.join(' | ') + (activity.type === 'github-commit' ? ' | Rueckwirkende Dokumentation' : ' | Gesamt ' + totalProgress + '% | Plus +' + dayGain + '%'));
     });
 
     return chip;
@@ -1431,7 +1454,7 @@
         var assigneeName = activity.assigneeId ? getEmployeeName(activity.assigneeId) : 'Nicht zugewiesen';
         var workplace = activity.assigneeId ? getEmployeeWorkplace(activity.assigneeId) : '';
         var projectLabel = getProjectLabel(activity.projectId);
-        var displayTime = getDisplayTime(activity.updatedAt);
+        var displayTime = activity.calendarTime || getDisplayTime(activity.updatedAt);
         var totalProgress = clampProgress(activity.progress);
         var dayStart = clampProgress(activity.dayStartProgress);
         var dayGain = Math.max(0, totalProgress - dayStart);
@@ -1449,7 +1472,9 @@
           '<div class="calendar-activity-growth-bar" aria-hidden="true">' +
           '<span class="calendar-activity-growth-total" style="width:' + totalProgress + '%"></span>' +
           '</div>' +
-          '<div class="calendar-activity-progress-row calendar-activity-progress-row-sub"><span>Plus</span><strong class="calendar-progress-today">+' + escapeHtml(String(dayGain)) + '%</strong></div>' +
+          (activity.type === 'github-commit'
+            ? '<div class="calendar-activity-progress-row calendar-activity-progress-row-sub">Rueckwirkende Dokumentation; keine Arbeitsdauer erfasst.</div>'
+            : '<div class="calendar-activity-progress-row calendar-activity-progress-row-sub"><span>Plus</span><strong class="calendar-progress-today">+' + escapeHtml(String(dayGain)) + '%</strong></div>') +
           '<div class="calendar-event-details">' +
           '<div><strong>Status:</strong> ' + escapeHtml(getTaskStatusLabel(activity.status)) + '</div>' +
           '<div><strong>Aktivitaet:</strong> ' + escapeHtml(typeMeta.label) + '</div>' +
