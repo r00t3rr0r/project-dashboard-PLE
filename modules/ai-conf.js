@@ -623,5 +623,6 @@ function bindEvents(root,config,models){
   syncActivityUI(window.LocalOllama&&window.LocalOllama.getStatus?window.LocalOllama.getStatus():null);
 }
 window.AIConfModule={render:render,getConfiguration:readConfig};
+window.AIConfModule.translateCommitBatch=translateCommitBatch;
 window.addEventListener('localOllamaStatusChanged',function(event){syncActivityUI(event.detail);});
 })();

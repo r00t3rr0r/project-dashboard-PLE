@@ -83,56 +83,32 @@ function requestAiTaskDraft(payload){
   return window.LocalOllama.generate('/api/ai/meeting-task-draft',payload||{});
 }
 
-function translateGitHubCommitsToGerman(commits){
-  var entries=(Array.isArray(commits)?commits:[]).map(function(commit){
-    return {sha:commit.sha,message:commit.fullMessage||commit.message||''};
-  });
-  if(!entries.length||!window.LocalOllama||typeof window.LocalOllama.generate!=='function')return Promise.resolve(commits||[]);
-  return window.LocalOllama.generate('/api/ai/meeting-task-draft',{
-    projectId:'github-commit-translation',
-    projectTitle:'GitHub-Commit-Dokumentation',
-    draftInput:JSON.stringify(entries),
-    promptConfig:{prompt:'Uebersetze jeden GitHub-Commit fuer deutschsprachige Mitarbeitende. Erzeuge pro Eingabe genau einen Eintrag mit derselben SHA, einem kurzen deutschen Titel und einer sachlichen deutschen Beschreibung der technischen Aenderung. Erhalte technische Begriffe, Dateinamen und Versionsnummern. Antworte ausschliesslich als JSON mit taskSuggestions als Array von Objekten mit sha, titleDe und descriptionDe.'}
-  }).then(function(result){
-    var translations=result&&result.draft&&Array.isArray(result.draft.taskSuggestions)?result.draft.taskSuggestions:[];
-    var bySha={};
-    translations.forEach(function(item){
-      var sha=String(item&&item.sha||'').trim();
-      if(sha)bySha[sha]=item;
-    });
-    return commits.map(function(commit){
-      var translation=bySha[String(commit.sha||'').trim()]||{};
-      commit.germanTitle=String(translation.titleDe||'').trim()||commit.message;
-      commit.germanDescription=String(translation.descriptionDe||'').trim();
-      return commit;
-    });
-  }).catch(function(){return commits;});
+function translateGitHubCommits(commits,project){
+  if(!window.LocalOllama||typeof window.LocalOllama.generate!=='function'||!window.AIConfModule||typeof window.AIConfModule.translateCommitBatch!=='function'){
+    return Promise.reject(new Error('Die KI-Uebersetzung ist nicht verfuegbar.'));
+  }
+  var translated=[],chain=Promise.resolve();
+  for(var offset=0;offset<commits.length;offset+=4){
+    (function(batch){
+      chain=chain.then(function(){
+        return window.AIConfModule.translateCommitBatch(project,batch).then(function(items){translated=translated.concat(items);});
+      });
+    })(commits.slice(offset,offset+4));
+  }
+  return chain.then(function(){return translated;});
 }
 
-function createGermanGitHubTaskDraft(commits,project){
-  var entries=(Array.isArray(commits)?commits:[]).map(function(commit){
-    return {sha:commit.sha,title:commit.germanTitle||commit.message,description:commit.germanDescription||'',author:commit.author};
-  });
-  var fallbackSubtasks=entries.map(function(entry){
-    return entry.title+' | '+(entry.description||'Technische Aenderung umgesetzt.')+' | Commit: '+entry.sha+' | Autor: '+entry.author;
-  });
-  var fallbackTitle='Implementierungen der letzten 24 Stunden dokumentieren';
-  var fallbackDescription='Nachtraegliche Dokumentation der bereits umgesetzten GitHub-Commits fuer das Projekt.';
-  if(!window.LocalOllama||typeof window.LocalOllama.generate!=='function')return Promise.resolve({title:fallbackTitle,description:fallbackDescription,subtasks:fallbackSubtasks,effortHours:Math.max(0,entries.length)});
-  return window.LocalOllama.generate('/api/ai/meeting-task-draft',{
-    projectId:String(project&&project.id||''),
-    projectTitle:String(project&&project.title||project&&project.name||'Projekt'),
-    draftInput:JSON.stringify(entries),
-    promptConfig:{prompt:'Erstelle aus den deutschen Commit-Beschreibungen einen deutschen Aufgabenentwurf fuer die nachtraegliche Dokumentation bereits erledigter Implementierungen. Erzeuge einen passenden kurzen Titel, eine sachliche Beschreibung, fuer jeden Commit genau eine deutsche Teilaufgabe und schaetze den Gesamtaufwand in Stunden. Der Aufwand muss groesser als 0 sein und die Summe der Commit-Aufwaende abbilden. Antworte ausschliesslich als JSON mit task.titleDe, task.descriptionDe, task.effortHours und task.subtasksDe.'}
-  }).then(function(result){
-    var task=result&&result.draft&&result.draft.task||{};
-    return {
-      title:String(task.titleDe||'').trim()||fallbackTitle,
-      description:String(task.descriptionDe||'').trim()||fallbackDescription,
-      subtasks:fallbackSubtasks,
-      effortHours:Math.max(0,parseFloat(task.effortHours)||entries.length)
-    };
-  }).catch(function(){return {title:fallbackTitle,description:fallbackDescription,subtasks:fallbackSubtasks,effortHours:Math.max(0,entries.length)};});
+function formatGitHubCommitDraft(commits){
+  return {
+    title:'GitHub-Commits dokumentieren',
+    description:'Nachtraegliche Dokumentation der GitHub-Commits.\n\nCommits:\n'+commits.map(function(commit){
+      return commit.sha+' ('+commit.author+')'
+        +'\nDE: '+commit.title+'\n'+commit.descriptionDe
+        +'\nEN: '+commit.titleEn+'\n'+commit.descriptionEn
+        +'\nOriginal: '+commit.message;
+    }).join('\n\n'),
+    subtasks:commits.map(function(commit){return 'DE: '+commit.title+' | EN: '+commit.titleEn+' | Commit: '+commit.sha;})
+  };
 }
 
 function getQuickTaskGitHubToken(){
@@ -146,47 +122,56 @@ function getQuickTaskGitHubToken(){
 function fetchQuickTaskGitHubCommits(project){
   var github=project&&project.github?project.github:{};
   if(!github.owner||!github.repo)return Promise.reject(new Error('Das Projekt hat keinen GitHub-Link.'));
-  var since=Date.now()-(24*60*60*1000);
+  var until=new Date().toISOString();
   var token=getQuickTaskGitHubToken();
+  var seen=new Set();
 
   function requestPage(page,found){
-    var url='/api/github/commits?owner='+encodeURIComponent(github.owner)+'&repo='+encodeURIComponent(github.repo)+'&per_page=100&page='+page;
+    var url='/api/github/commits?owner='+encodeURIComponent(github.owner)+'&repo='+encodeURIComponent(github.repo)+'&per_page=100&page='+page+'&until='+encodeURIComponent(until);
     return fetch(url,{headers:token?{'X-GitHub-Token':token}:{}}).then(function(response){
-      return response.json().catch(function(){return {};}).then(function(body){
-        if(!response.ok)throw new Error(body&&body.message?body.message:('GitHub API HTTP '+response.status));
-        return Array.isArray(body)?body:[];
+      return response.json().then(function(body){
+        if(response.status===409)return [];
+        if(!response.ok)throw new Error(body&&(body.error||body.message)||('GitHub API HTTP '+response.status));
+        if(!Array.isArray(body))throw new Error('GitHub hat keine gueltige Commit-Liste geliefert.');
+        return body;
       });
     }).then(function(items){
       var pageCommits=items.map(function(item){
         var commit=item&&item.commit||{};
         var author=commit.author||{};
         var committer=commit.committer||{};
-        var timestamp=author.date||committer.date||'';
+        var timestamp=committer.date||author.date||'';
         return {
           sha:String(item&&item.sha||'').trim(),
-          message:String(commit.message||'').split('\n')[0].trim(),
-          fullMessage:String(commit.message||'').trim(),
+          message:String(commit.message||'').trim(),
           author:String(author.name||(item&&item.author&&item.author.login)||'Unbekannt').trim(),
           authorLogin:String(item&&item.author&&item.author.login||'').trim(),
           date:timestamp,
           url:String(item&&item.html_url||'').trim()
         };
-      }).filter(function(commit){return commit.sha&&Date.parse(commit.date)>=since;});
+      }).filter(function(commit){
+        if(!commit.sha||!isFinite(Date.parse(commit.date)))throw new Error('GitHub hat einen Commit ohne SHA oder gueltigen Zeitpunkt geliefert.');
+        if(Date.parse(commit.date)>Date.parse(until)||seen.has(commit.sha))return false;
+        seen.add(commit.sha);
+        return true;
+      });
       var all=found.concat(pageCommits);
-      var oldest=items.length?Date.parse(((items[items.length-1].commit||{}).author||{}).date||''):NaN;
-      if(items.length===100&&(!isFinite(oldest)||oldest>=since)&&page<5)return requestPage(page+1,all);
+      if(items.length===100)return requestPage(page+1,all);
       return all;
     });
   }
   return requestPage(1,[]);
 }
 
-function getGitHubCommitDocumentationTaskId(sha){
+function getGitHubCommitDocumentationTaskId(sha,project){
   var target='github-commit:'+String(sha||'').trim();
+  var repository=String(project.github.owner+'/'+project.github.repo).toLowerCase();
   var tasks=window.DataLayer&&typeof window.DataLayer.getTasks==='function'?window.DataLayer.getTasks():[];
   var existing=tasks.find(function(task){
-    if(!task)return false;
+    if(!task||String(task.projectId||'')!==String(project.id||''))return false;
     if(String(task.externalId||'')===target)return true;
+    var source=task.githubCommitImport;
+    if(source&&String(source.repository||'').toLowerCase()===repository&&Array.isArray(source.shas)&&source.shas.indexOf(sha)!==-1)return true;
     return Array.isArray(task.sourceCommitShas)&&task.sourceCommitShas.indexOf(String(sha||'').trim())!==-1;
   });
   return existing?String(existing.id||''):'';
@@ -413,7 +398,7 @@ function openQuickTaskModal(prefill){
         +'<div class="task-ai-actions">'
           +'<button type="button" class="btn btn-secondary" id="qtm-ai-fill">KI-Entwurf aus Titel + Beschreibung</button>'
           +'<button type="button" class="btn btn-secondary" id="qtm-ai-assign">KI-Zuweisung</button>'
-          +'<button type="button" class="btn btn-secondary" id="qtm-github-commits">GitHub-Commits der letzten 24 Stunden</button>'
+          +'<button type="button" class="btn btn-secondary" id="qtm-github-commits">Neue GitHub-Commits abrufen</button>'
           +'<button type="button" class="btn btn-secondary hidden" id="qtm-ai-chain">Kettenvorschlag uebernehmen</button>'
         +'</div>'
         +'<label class="task-ai-check"><input type="checkbox" id="qtm-ai-autoassign" checked> Mitarbeiter automatisch vorschlagen</label>'
@@ -462,6 +447,7 @@ function openQuickTaskModal(prefill){
 
     var aiState={loading:false,draft:null,suggestions:[]};
     var githubDraftCommits=[];
+    var githubDraftProjectId='';
     var selectedAssigneeIds=[];
     var pendingFiles=[];
 
@@ -865,41 +851,56 @@ function openQuickTaskModal(prefill){
       });
 
       var githubCommitBtn=document.getElementById('qtm-github-commits');
+      var githubProjectSelect=document.getElementById('qtm-project');
+      githubProjectSelect.addEventListener('change',function(){
+        var review=document.getElementById('qtm-github-commit-review');
+        if(review)review.classList.add('hidden');
+        if(githubDraftCommits.length&&githubDraftProjectId!==githubProjectSelect.value){
+          githubDraftCommits=[];
+          githubDraftProjectId='';
+          updateAiStatus('Projekt geaendert: Commit-Zuordnung entfernt. Bitte den Entwurf pruefen.',true);
+        }
+      });
       if(githubCommitBtn)githubCommitBtn.addEventListener('click',function(){
+        if(aiState.loading)return;
         var selection=getProjectSelection();
         var review=document.getElementById('qtm-github-commit-review');
         if(!selection.project){
           updateAiStatus('Fuer den GitHub-Abruf bitte zuerst ein Projekt waehlen.',true);
           return;
         }
-        githubCommitBtn.disabled=true;
+        review.classList.add('hidden');
+        aiState.loading=true;
+        toggleAiButtons(true);
+        githubProjectSelect.disabled=true;
         updateAiStatus('GitHub-Commits werden abgerufen ...',false);
         fetchQuickTaskGitHubCommits(selection.project).then(function(commits){
-          if(!review)return;
+          commits=commits.filter(function(commit){return !getGitHubCommitDocumentationTaskId(commit.sha,selection.project);});
           if(!commits.length){
-            review.innerHTML='<div>Keine neuen Commits der letzten 24 Stunden gefunden.</div>';
+            review.innerHTML='<div>Keine neuen Commits im Standard-Branch gefunden.</div>';
             review.classList.remove('hidden');
-            updateAiStatus('Keine neuen Commits im Zeitfenster.',false);
+            updateAiStatus('Keine neuen Commits gefunden.',false);
             return;
           }
-          updateAiStatus('Commit-Informationen werden auf Deutsch vorbereitet ...',false);
-          translateGitHubCommitsToGerman(commits).then(function(translatedCommits){
+          updateAiStatus('Commit-Informationen werden auf Deutsch und Englisch vorbereitet ...',false);
+          return translateGitHubCommits(commits,selection.project).then(function(translatedCommits){
           review.innerHTML='<strong>Commit-Teilaufgaben pruefen</strong>'
+            +'<div>KI-Uebersetzungen koennen Fehler enthalten. Bitte vor dem Erstellen pruefen.</div>'
             +translatedCommits.map(function(commit){
-              var existing=getGitHubCommitDocumentationTaskId(commit.sha);
+              var existing=getGitHubCommitDocumentationTaskId(commit.sha,selection.project);
               var checked=existing?'':' checked';
               var disabled=existing?' disabled':'';
               var state=existing?' (bereits dokumentiert)':'';
               return '<label style="display:block;margin-top:0.45rem;opacity:'+(existing?'0.6':'1')+';">'
                 +'<input type="checkbox" data-github-commit-sha="'+escapeAttr(commit.sha)+'"'+checked+disabled+'>'
-                +' '+escapeHtml(commit.germanTitle||commit.message||'(ohne Nachricht)')+' <small>'+escapeHtml(commit.author)+' · '+escapeHtml(new Date(commit.date).toLocaleString('de-DE'))+escapeHtml(state)+'</small>'
+                +' DE: '+escapeHtml(commit.title)+' <small>'+escapeHtml(commit.author)+' · '+escapeHtml(new Date(commit.date).toLocaleString('de-DE'))+escapeHtml(state)+'</small>'
+                +'<br><small>EN: '+escapeHtml(commit.titleEn)+'</small>'
                 +'</label>';
             }).join('')
             +'<button type="button" class="btn btn-primary" id="qtm-github-create" style="margin-top:0.7rem;">Ausgewählte als Teilaufgaben in der Aufgabe entwerfen</button>';
           review.classList.remove('hidden');
           review._commits=translatedCommits;
-          githubDraftCommits=translatedCommits;
-          updateAiStatus(String(translatedCommits.length)+' Commit(s) auf Deutsch vorbereitet.',false);
+          updateAiStatus(String(translatedCommits.length)+' Commit(s) vorbereitet (deutsch + englisch).',false);
           var createBtn=document.getElementById('qtm-github-create');
           if(createBtn)createBtn.addEventListener('click',function(){
             var selected=[];
@@ -907,39 +908,35 @@ function openQuickTaskModal(prefill){
               var commit=translatedCommits.find(function(item){return item.sha===input.getAttribute('data-github-commit-sha');});
               if(commit)selected.push(commit);
             });
-            var newCommits=selected.filter(function(commit){return !getGitHubCommitDocumentationTaskId(commit.sha);});
+            var newCommits=selected.filter(function(commit){return !getGitHubCommitDocumentationTaskId(commit.sha,selection.project);});
             if(!newCommits.length){
               review.classList.add('hidden');
               updateAiStatus('Keine neuen Aufgaben ausgewaehlt.',false);
               return;
             }
-            createBtn.disabled=true;
-            updateAiStatus('Aufgabenentwurf aus den ausgewaehlten Commits wird erstellt ...',false);
-            githubDraftCommits=newCommits;
-            createGermanGitHubTaskDraft(newCommits,selection.project).then(function(draft){
+              var draft=formatGitHubCommitDraft(newCommits);
               var titleEl=document.getElementById('qtm-title');
               var descEl=document.getElementById('qtm-desc');
-              var effortEl=document.getElementById('qtm-effort');
               var subtaskEl=document.getElementById('qtm-subtasks');
               if(titleEl)titleEl.value=draft.title;
-              if(descEl)descEl.value=draft.description+'\n\nCommits:\n'+newCommits.map(function(commit){return commit.sha+' - '+(commit.germanDescription||commit.germanTitle);}).join('\n');
-              if(effortEl)effortEl.value=String(Math.max(0,Math.round(draft.effortHours*2)/2));
+              if(descEl)descEl.value=draft.description;
               if(subtaskEl)subtaskEl.value=draft.subtasks.join('\n');
               var attachmentEl=document.getElementById('qtm-attachments');
               if(attachmentEl)attachmentEl.value=newCommits.filter(function(commit){return commit.url;}).map(function(commit){return 'GitHub Commit '+commit.sha+'|'+commit.url;}).join('\n');
               resizeQuickTaskTextareas();
+              githubDraftCommits=newCommits;
+              githubDraftProjectId=String(selection.project.id);
               review.classList.add('hidden');
               updateAiStatus('Entwurf uebernommen. Bitte pruefen und mit „Erstellen“ anlegen.',false);
-            }).catch(function(error){
-              updateAiStatus('Aufgabenentwurf fehlgeschlagen: '+String(error&&error.message||error),true);
-            }).finally(function(){createBtn.disabled=false;});
           });
-          }).catch(function(error){
-            updateAiStatus('Uebersetzung fehlgeschlagen: '+String(error&&error.message||error),true);
           });
         }).catch(function(error){
-          updateAiStatus('GitHub-Abruf fehlgeschlagen: '+String(error&&error.message||error),true);
-        }).finally(function(){githubCommitBtn.disabled=false;});
+          updateAiStatus('GitHub-Commits konnten nicht vorbereitet werden: '+String(error&&error.message||error),true);
+        }).finally(function(){
+          aiState.loading=false;
+          toggleAiButtons(false);
+          githubProjectSelect.disabled=false;
+        });
       });
 
       var aiChainBtn=document.getElementById('qtm-ai-chain');
@@ -975,6 +972,10 @@ function openQuickTaskModal(prefill){
     }
     
     document.getElementById('qt-submit').addEventListener('click',function(){
+      if(aiState.loading){
+        updateAiStatus('Bitte warten, bis die KI-Verarbeitung abgeschlossen ist.',true);
+        return;
+      }
       if(auth&&typeof auth.canCreateTask==='function'&&!auth.canCreateTask()){
         alert('QuickTask ist nur fuer angemeldete Mitarbeiter freigeschaltet.');
         return;

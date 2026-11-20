@@ -256,6 +256,18 @@ Parameter:
 - `page` (optional, ab 1)
 - `since`, `until` (optional, ISO-8601-Zeitstempel; werden an GitHub weitergegeben)
 
+### GitHub-Commits in QuickTask
+
+Im Dialog "Neue Aufgabe" laedt "Neue GitHub-Commits abrufen" alle Seiten der
+Historie des Standard-Branches bis zum Abrufzeitpunkt. Bereits im Projekt
+dokumentierte SHAs aus QuickTask oder AI Conf werden ausgelassen; nicht
+ausgewaehlte Commits bleiben fuer einen spaeteren Abruf verfuegbar. Ollama
+uebersetzt die vollstaendige Nachricht unabhaengig von der Ausgangssprache,
+auch aus dem Tuerkischen, nach Deutsch und Englisch. Die Aufgabe enthaelt
+beide Uebersetzungen und das Original; die ausgewaehlten SHAs werden erst
+beim Erstellen gespeichert. Unvollstaendige oder nicht eindeutig zuordenbare
+Uebersetzungen fuehren zu einer Fehlermeldung. KI-Ausgaben bitte pruefen.
+
 ### Erledigte Aufgaben aus GitHub (AI Conf)
 
 Im operativen Assistenten ein mit GitHub verknuepftes Projekt auswaehlen und

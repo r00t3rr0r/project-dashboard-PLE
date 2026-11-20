@@ -1683,7 +1683,7 @@ class StorageHandler(BaseHTTPRequestHandler):
             title_en = str(item.get('titleEn') or '').strip()
             if not title_de and not title_en:
                 continue
-            out.append({
+            suggestion = {
                 'titleDe': title_de,
                 'titleEn': title_en,
                 'descriptionDe': str(item.get('descriptionDe') or '').strip(),
@@ -1695,7 +1695,12 @@ class StorageHandler(BaseHTTPRequestHandler):
                 'sequenceIndex': self._normalize_sequence_index(item.get('sequenceIndex')),
                 'dependsOnPrevious': bool(item.get('dependsOnPrevious')),
                 'note': str(item.get('note') or '').strip()
-            })
+            }
+            # Referenz-SHA erhalten, damit z. B. Commit-Uebersetzungen zugeordnet werden koennen.
+            sha = str(item.get('sha') or '').strip()
+            if sha:
+                suggestion['sha'] = sha
+            out.append(suggestion)
         return out[:8]
 
     def _normalize_time_value(self, value):
