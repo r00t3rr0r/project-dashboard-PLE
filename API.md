@@ -316,18 +316,16 @@ Tests oder Abnahmen. Bereits gespeicherte Aufgaben werden nicht umuebersetzt.
 `task.githubCommitImport` speichert `repository`, `dailyTaskDate`, `shas` und
 strukturierte `commits`; AI Conf speichert ausserdem den Abrufzeitpunkt `until`.
 Beim Speichern entsteht pro ausgewaehltem Commit ein
-mit der Aufgabe verknuepfter Kalendereintrag in der Terminansicht. Datum und
+mit der Aufgabe verknuepfter Kalendereintrag fuer den Arbeitsfluss. Datum und
 Uhrzeit entsprechen dem GitHub-Committer-Zeitpunkt in der lokalen Zeitzone des
 importierenden Browsers und bleiben danach unveraendert. Der Eintrag nennt den
 GitHub-Autor und die gewaehlte Mitarbeiterzuordnung und dokumentiert keine
 Arbeitsdauer. Im Mitarbeiterfilter erscheint er nur beim zugeordneten
 Mitarbeiter. Es werden keine Termineinladungen erzeugt. Eintraege
 werden mit der Aufgabe synchronisiert und beim Loeschen der Aufgabe entfernt.
-In der Terminansicht werden Commit-Eintraege nach Projekt gebuendelt:
-im Tagesfeld fuer den jeweiligen Tag, in der Terminliste fuer den angezeigten
-Monat. Jede Gruppe zeigt ihre Commit-Anzahl und die drei neuesten Eintraege;
-weitere lassen sich aufklappen. Einzelne Commit-Details bleiben erreichbar,
-und Mitarbeiter- sowie Terminartfilter gelten vor der Gruppierung.
+Die Terminansicht und der ICS-Export enthalten keine Commit-Dokumentation.
+Aufgaben erscheinen dort nur mit ihren separat gesetzten Terminen
+(Zeitraum, Deadline, fester Termin oder umgehend).
 Im Arbeitsfluss werden Commits ebenfalls pro Projekt und Commit-Tag gebuendelt
 und nach Mitarbeiter gefiltert; die drei neuesten sind direkt sichtbar, weitere
 aufklappbar. Die rueckwirkende Dokumentation erzeugt keinen kuenstlichen

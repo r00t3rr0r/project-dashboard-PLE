@@ -333,6 +333,10 @@
     });
   }
 
+  function filterAppointmentEvents(events) {
+    return events.filter(function (event) { return event.source !== 'github-commit'; });
+  }
+
   function renderTypeLegend(monthEvents) {
     var legendEl = document.getElementById('calendar-type-legend');
     if (!legendEl) return;
@@ -1389,14 +1393,15 @@
       });
 
       var allEvents = getCalendarEvents();
-      var visibleEvents = filterEventsByType(filterEventsByEmployee(allEvents.slice().sort(sortEvents)));
-      var legendEvents = filterEventsByEmployee(getCalendarEvents()).filter(function (evt) {
+      var appointmentEvents = filterAppointmentEvents(allEvents);
+      var visibleEvents = filterEventsByType(filterEventsByEmployee(appointmentEvents.slice().sort(sortEvents)));
+      var legendEvents = filterEventsByEmployee(appointmentEvents).filter(function (evt) {
         return isDateInMonth(String(evt.date || evt.startDate || ''), currentViewDate);
       });
       renderTypeLegend(legendEvents);
       renderPendingInvites();
       var activityEntries = buildTaskActivityEntries();
-      var commitDates = getCommitEventDates();
+      var commitDates = isActivityMode ? getCommitEventDates() : null;
       var workflowDays = isActivityMode ? buildWorkflowDays(activityEntries, allEvents, commitDates) : null;
       var overflowDaysCount = 0;
 
@@ -1417,10 +1422,6 @@
         var dayItems = isActivityMode ? (workflowDays[dateStr] ? workflowDays[dateStr].items : []) : visibleEvents.filter(function (item) {
           return String(item.date || item.startDate || '') === dateStr;
         });
-
-        if (!isActivityMode) {
-          dayItems = groupCommitEvents(dayItems, commitDates);
-        }
 
         var hasOverflow = dayItems.length > 3;
         if (hasOverflow) overflowDaysCount += 1;
@@ -1465,13 +1466,13 @@
       updateOverflowToggleButton(overflowDaysCount);
 
       if (isActivityMode) renderActivityList(currentViewDate, activityEntries, workflowDays);
-      else renderEventList(currentViewDate, visibleEvents, commitDates);
+      else renderEventList(currentViewDate, visibleEvents);
     } catch (err) {
       console.error('[Calendar] Error:', err);
     }
   }
 
-  function renderEventList(viewDate, events, commitDates) {
+  function renderEventList(viewDate, events) {
     var listEl = document.getElementById('calendar-events-list');
     if (!listEl) return;
     listEl.innerHTML = '';
@@ -1500,18 +1501,12 @@
       return;
     }
 
-    groupCommitEvents(monthEvents.sort(sortEvents), commitDates).forEach(function (evt) {
-      if (evt.commitGroup) {
-        listEl.appendChild(createCommitGroup(evt, false));
-        return;
-      }
+    monthEvents.sort(sortEvents).forEach(function (evt) {
       var card = document.createElement('article');
       card.className = 'calendar-event-card';
 
       var meta = getEventTypeMeta(normalizeEventType(evt.type || 'meeting'));
-      var participants = evt.source === 'github-commit'
-        ? (evt.commitEmployeeId ? [getEmployeeName(evt.commitEmployeeId)] : [])
-        : getEventParticipants(evt).map(getEmployeeName);
+      var participants = getEventParticipants(evt).map(getEmployeeName);
       var projectLabel = getProjectLabel(evt.projectId);
       var summary = getRsvpSummary(evt);
       var details = [];
@@ -1813,7 +1808,7 @@
 
   function exportICS() {
     try {
-      var events = filterEventsByType(filterEventsByEmployee(getCalendarEvents().slice()));
+      var events = filterEventsByType(filterEventsByEmployee(filterAppointmentEvents(getCalendarEvents())));
       if (!events.length) {
         alert('Keine Events zum Exportieren.');
         return;

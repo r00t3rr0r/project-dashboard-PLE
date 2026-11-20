@@ -75,6 +75,34 @@ function makeDataLayer() {
   return window.DataLayer;
 }
 
+test('only scheduled task modes generate appointment events; commit documentation remains separate',()=>{
+  const data=makeDataLayer();
+  const schedules=[
+    ['deadline',{mode:'deadline',deadline:'2026-11-18'},['deadline']],
+    ['fixed',{mode:'fixed',fixedAt:'2026-11-18T10:00'},['fixed']],
+    ['range',{mode:'range',rangeStart:'2026-11-18',rangeEnd:'2026-11-19'},['range-start','range-end']],
+    ['asap',{mode:'asap'},['asap']],
+    ['none',{mode:'none'},[]]
+  ];
+  schedules.forEach(([id,schedule])=>data.createTask({id,title:id,schedule}));
+  const events=data.getCalendarEvents();
+  schedules.forEach(([id,,suffixes])=>{
+    const taskEvents=events.filter(event=>event.taskId===id);
+    assert.equal(taskEvents.length,suffixes.length);
+    suffixes.forEach(suffix=>assert(taskEvents.some(event=>event.id==='task-'+id+'-'+suffix&&event.source==='task')));
+  });
+  const task=data.getTaskById('deadline');
+  task.githubCommitImport={commits:[{
+    sha:'a'.repeat(40),calendarDate:'2026-11-17',calendarTime:'10:00',
+    date:'2026-11-17T10:00:00Z',title:'Commit'
+  }]};
+  data.updateTask(task);
+  const linked=data.getCalendarEvents().filter(event=>event.taskId==='deadline');
+  assert.equal(linked.length,2);
+  assert(linked.some(event=>event.source==='task'&&event.id==='task-deadline-deadline'));
+  assert(linked.some(event=>event.source==='github-commit'&&event.id==='task-deadline-github-commit-'+'a'.repeat(40)));
+});
+
 test('selected commits persist as separate linked calendar entries and follow task lifecycle',()=>{
   const previousTz=process.env.TZ;
   process.env.TZ='Europe/Berlin';
@@ -380,7 +408,7 @@ test('empty results and AI cancellation never create tasks and release controls'
   const harness = makeHarness();
   await harness.api.runCommitAssistant(harness.root);
   assert(harness.host.textContent.includes('Keine neuen Commits'));
-  harness.sandbox.fetch = async()=>({ok:true,json:async()=>[githubCommit(1,new Date().toISOString())]});
+  harness.sandbox.fetch = async()=>({ok:true,json:async()=>[githubCommit(1,new Date(Date.now()-1000).toISOString())]});
   harness.window.LocalOllama.generate = async()=>{const error=new Error('aborted');error.name='AbortError';throw error;};
   await harness.api.runCommitAssistant(harness.root);
   assert.equal(harness.tasks.length,0);

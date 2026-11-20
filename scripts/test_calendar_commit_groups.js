@@ -8,19 +8,19 @@ function harness(events, tasks) {
   function element() {
     let html='';
     return {
-      children:[],dataset:{},style:{},textContent:'',handlers:{},
+      children:[],dataset:{},style:{setProperty(){}},textContent:'',handlers:{},
       classList:{add(){},remove(){},toggle(){}},
       get innerHTML(){return html;},
       set innerHTML(value){html=value;this.children=[];},
       appendChild(child){this.children.push(child);},
       addEventListener(name,fn){this.handlers[name]=fn;},
-      setAttribute(){},removeAttribute(){},insertAdjacentHTML(){}
+      setAttribute(){},removeAttribute(){},insertAdjacentHTML(){},click(){}
     };
   }
-  const grid=element(),list=element();
+  const grid=element(),list=element(),legend=element(),downloads=[];
   const document={
-    addEventListener(){},createElement:element,
-    getElementById:id=>id==='calendar-grid'?grid:id==='calendar-events-list'?list:null
+    addEventListener(){},createElement:element,body:{appendChild(){},removeChild(){}},
+    getElementById:id=>id==='calendar-grid'?grid:id==='calendar-events-list'?list:id==='calendar-type-legend'?legend:null
   };
   const window={opened:[],DataLayer:{
     getCalendarEvents:()=>events,getTasks:()=>tasks,
@@ -31,8 +31,10 @@ function harness(events, tasks) {
     'window.CalendarModule = {',
     'openEventDetailsModal=function(id){window.opened.push(id);}; window.testCalendar={groupCommitEvents,createCommitGroup,renderEventList,renderCalendar,eventMatchesEmployeeFilter,setEmployee:function(id){selectedEmployeeId=id;},hideTaskType:function(){disabledTypeSet.add("task");}}; window.CalendarModule = {'
   );
-  vm.runInNewContext(source,{window,document,console,requestAnimationFrame(){}});
-  return {api:window.testCalendar,grid,list,window};
+  const URL={createObjectURL:blob=>{downloads.push(blob.content);return 'blob:test';},revokeObjectURL(){}};
+  const Blob=class {constructor(parts){this.content=parts.join('');}};
+  vm.runInNewContext(source,{window,document,console,URL,Blob,alert(){},requestAnimationFrame(){}});
+  return {api:window.testCalendar,grid,list,legend,window,downloads};
 }
 
 function fixtures() {
@@ -74,25 +76,27 @@ test('project groups show the three latest commits and expand the rest without l
   assert(stopped);
 });
 
-test('monthly list groups each project while day cells keep their own date and other events',()=>{
+test('appointment view and export hide commit documentation but retain scheduled and manual events',()=>{
   const {events,tasks}=fixtures();
-  events.push({id:'later',projectId:'p1',source:'github-commit',type:'task',date:'2020-01-03',startTime:'11:00',title:'Later'});
-  const {api,list,grid}=harness(events,tasks);
-  api.renderEventList(new Date(2020,0,1),events);
-  const projectGroups=list.children.filter(child=>child.className==='calendar-commit-group');
-  assert.equal(projectGroups.length,2);
-  assert.equal(projectGroups[0].children[0].children[1].textContent,'6 Commits');
-  assert.equal(projectGroups[0].children[1].children[0].textContent,'Later');
-  assert.equal(list.children.filter(child=>child.className==='calendar-event-card').length,1);
+  ['deadline','fixed','range-start','range-end','asap'].forEach(suffix=>events.push({
+    id:'task-t1-'+suffix,source:'task',taskId:'t1',type:'task',date:'2020-01-02',title:'Termin '+suffix
+  }));
+  events.push({id:'manual',type:'task',date:'2020-01-02',title:'Manueller Termin'});
+  const {api,list,grid,legend,window,downloads}=harness(events,tasks);
   api.renderCalendar(new Date(2020,0,1));
+  assert.equal(list.children.filter(child=>child.className==='calendar-commit-group').length,0);
+  assert.equal(list.children.filter(child=>child.className==='calendar-event-card').length,7);
   const dayCells=grid.children.filter(child=>child.children.some(item=>item.className==='calendar-event-list'));
   const day2=dayCells[1].children.find(child=>child.className==='calendar-event-list');
   const day3=dayCells[2].children.find(child=>child.className==='calendar-event-list');
-  assert.equal(day2.children.filter(child=>child.className==='calendar-commit-group calendar-commit-group--compact').length,1);
-  assert.equal(day2.children.find(child=>child.className==='calendar-commit-group calendar-commit-group--compact').children[0].children[1].textContent,'5 Commits');
+  assert.equal(day2.children.filter(child=>child.className==='calendar-commit-group calendar-commit-group--compact').length,0);
   assert(day2.children.some(child=>child.className==='calendar-event-chip'));
-  assert.equal(day3.children.filter(child=>child.className==='calendar-commit-group calendar-commit-group--compact').length,2);
-  assert.equal(day3.children[0].children[0].children[1].textContent,'1 Commit');
+  assert.equal(day3.children.length,0);
+  assert.match(legend.children[5].innerHTML,/<span class="calendar-legend-count">6<\/span>/);
+  window.CalendarModule.exportICS();
+  assert.equal((downloads[0].match(/BEGIN:VEVENT/g)||[]).length,7);
+  assert.doesNotMatch(downloads[0],/github-commit/);
+  assert.match(downloads[0],/SUMMARY:Termin deadline/);
 });
 
 test('group counts follow the employee filter and keep missing projects separate',()=>{
@@ -137,10 +141,15 @@ test('calendar applies employee and event type filters before grouping',()=>{
   const {events,tasks}=fixtures();
   const {api,list}=harness(events,tasks);
   api.setEmployee('alice');
-  api.renderCalendar(new Date(2020,0,1));
-  const group=list.children.find(child=>child.className==='calendar-commit-group');
-  assert.equal(group.children[0].children[1].textContent,'3 Commits');
   api.hideTaskType();
+  api.setEmployee('bob');
   api.renderCalendar(new Date(2020,0,1));
   assert.equal(list.children.filter(child=>child.className==='calendar-commit-group').length,0);
+  const workflow=harness(events,tasks);
+  workflow.window.CalendarModule.setMode('activity');
+  workflow.api.setEmployee('alice');
+  workflow.api.hideTaskType();
+  workflow.api.renderCalendar(new Date(2020,0,1));
+  const group=workflow.list.children.find(child=>child.className==='calendar-commit-group');
+  assert.equal(group.children[0].children[1].textContent,'3 Commits');
 });
