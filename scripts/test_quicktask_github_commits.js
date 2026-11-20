@@ -76,6 +76,20 @@ test('only an unambiguous exact GitHub login is suggested for an author',()=>{
   assert.equal(api.findGitHubCommitEmployee({authorLogin:'alice'},employees.concat({id:'c',github:{username:'alice'}})),'');
 });
 
+test('unlinked commit authors match only unambiguous explicitly configured aliases',()=>{
+  const {api}=harness();
+  const employees=[
+    {id:'a',name:'Dieter',github:{username:'account',aliases:['Dieter','account','Dieter Senf']}},
+    {id:'b',name:'Bob',github:{username:'bob',aliases:['Bob','bob']}}
+  ];
+  assert.equal(api.findGitHubCommitEmployee({author:' DIETER SENF '},employees),'a');
+  assert.equal(api.findGitHubCommitEmployee({author:'Dieter'},employees),'');
+  assert.equal(api.findGitHubCommitEmployee({author:'Dieter Senf',authorLogin:'unknown'},employees),'');
+  assert.equal(api.findGitHubCommitEmployee({author:'Dieter Senf',authorLogin:'bob'},employees),'b');
+  const duplicate=employees.concat({id:'c',name:'Carol',github:{aliases:['Dieter Senf']}});
+  assert.equal(api.findGitHubCommitEmployee({author:'Dieter Senf'},duplicate),'');
+});
+
 test('translates Turkish messages in both languages and keeps original text in the draft',async()=>{
   const h=harness(),batches=[];
   h.window.LocalOllama={generate:async(path,payload)=>{
@@ -334,6 +348,16 @@ test('AI Conf prefill suggests the linked employee in the commit selector',()=>{
   assert.match(html,/value="alice" selected>Alice/);
   assert.match(html,/Andere|Other display name/);
   assert.equal(element('qtm-ai-assign').disabled,true);
+});
+
+test('prefill suggests a configured commit author alias without a GitHub login',()=>{
+  const {h,element}=modalHarness();
+  h.window.DataLayer.getEmployees=()=>[{id:'alice',name:'Alice',github:{username:'alice',aliases:['Alice Example']}}];
+  const entry={sha:'b'.repeat(40),date:'2020-01-01T10:00:00Z',calendarDate:'2020-01-01',calendarTime:'10:00',
+    author:'Alice Example',authorLogin:'',title:'Titel',titleEn:'Title',
+    descriptionDe:'Beschreibung',descriptionEn:'Description',message:'Original'};
+  h.window.QuickTaskModule.open({task:{projectId:'p1'},githubCommits:[entry]});
+  assert.match(element('qtm-github-daily-drafts').innerHTML,/value="alice" selected>Alice/);
 });
 
 test('AI Conf prefill creates editable daily drafts and rejects a missing commit subtask',async()=>{

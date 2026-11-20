@@ -140,7 +140,8 @@ function groupGitHubCommitsByDay(commits){
 
 function findGitHubCommitEmployee(commit,employees){
   var login=String(commit.authorLogin||'').trim().replace(/^@/,'').toLowerCase();
-  if(!login)return '';
+  var author=String(commit.author||'').trim().toLowerCase();
+  if(!login&&!author)return '';
   var matches=employees.filter(function(employee){
     var github=employee&&employee.github||{};
     var username=String(github.username||'').trim().replace(/^@/,'');
@@ -148,7 +149,13 @@ function findGitHubCommitEmployee(commit,employees){
       var profile=String(github.profileUrl||'').trim().match(/^https?:\/\/(?:www\.)?github\.com\/([a-z0-9-]+)\/?(?:[?#].*)?$/i);
       username=profile?profile[1]:'';
     }
-    return username.toLowerCase()===login&&!!employee.id;
+    if(!employee||!employee.id)return false;
+    if(login)return username.toLowerCase()===login;
+    var name=String(employee.name||'').trim().toLowerCase();
+    return Array.isArray(github.aliases)&&github.aliases.some(function(alias){
+      var value=String(alias||'').trim().toLowerCase();
+      return value&&value!==name&&value!==username.toLowerCase()&&value===author;
+    });
   });
   return matches.length===1?String(matches[0].id):'';
 }
@@ -900,10 +907,10 @@ function openQuickTaskModal(prefill){
             +'<div class="form-group"><label for="qtm-github-desc-'+key+'">Beschreibung</label><textarea id="qtm-github-desc-'+key+'" rows="6">'+escapeHtml(group.draft.description)+'</textarea></div>'
             +'<div class="form-group"><label for="qtm-github-subtasks-'+key+'">Teilaufgaben (eine pro Zeile)</label><textarea id="qtm-github-subtasks-'+key+'" rows="4">'+escapeHtml(group.draft.subtasks.join('\n'))+'</textarea></div></section>';
         }).join('')
-        +'<h3>Commit-Autoren zuordnen</h3><p>GitHub-Konten werden vorgeschlagen. Bitte jede Zuordnung pruefen; unbekannte Autoren muessen manuell zugewiesen werden.</p>'
+        +'<h3>Commit-Autoren zuordnen</h3><p>GitHub-Konten und hinterlegte Commit-Aliase werden vorgeschlagen. Bitte jede Zuordnung pruefen; unbekannte Autoren muessen manuell zugewiesen werden.</p>'
         +groups.map(function(group){
           return '<section class="qtm-new-section"><h3>'+escapeHtml(group.date)+'</h3>'+group.commits.map(function(commit){
-            var suggested=findGitHubCommitEmployee(commit,employees);
+            var suggested=findGitHubCommitEmployee(commit,window.DataLayer.getEmployees()||[]);
             var id='qtm-github-assignee-'+commit.sha;
             return '<div class="form-group"><label for="'+escapeAttr(id)+'">'+escapeHtml(commit.title)+' · '+escapeHtml(commit.author)+(commit.authorLogin?' (@'+escapeHtml(commit.authorLogin)+')':'')+' ['+escapeHtml(commit.sha.slice(0,7))+']</label>'
               +'<select id="'+escapeAttr(id)+'" required><option value="">-- Mitarbeiter auswaehlen --</option>'

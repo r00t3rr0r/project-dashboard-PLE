@@ -273,7 +273,11 @@ Labels und hochgeladene Dateien gelten fuer jede Tagesaufgabe. Vor dem
 Speichern muss jeder Commit einem zulaessigen Mitarbeiter zugeordnet werden.
 Eine eindeutige Uebereinstimmung zwischen GitHub-Autorenlogin und
 GitHub-Benutzername bzw. Profillink im Mitarbeiterprofil wird vorgeschlagen;
-fehlende oder mehrdeutige Zuordnungen muessen manuell ausgewaehlt werden.
+bei Commits ohne GitHub-Login wird ein eindeutig hinterlegter GitHub-Alias
+exakt mit dem Commit-Autornamen verglichen. Automatisch hinterlegte
+Mitarbeiternamen und Benutzernamen gelten dabei nicht als Commit-Aliase.
+Commit-Autornamen sind frei waehlbar; Vorschlaege sollten daher geprueft werden.
+Fehlende oder mehrdeutige Zuordnungen muessen manuell ausgewaehlt werden.
 Im Mitarbeitermodus kann nur der angemeldete Mitarbeiter ausgewaehlt werden.
 Die Tagesaufgabe wird allen zugeordneten Autoren des Tages zugewiesen, jede
 Commit-Teilaufgabe dem jeweils ausgewaehlten Mitarbeiter. Die Beschreibung
