@@ -1599,6 +1599,117 @@ textarea#retro-notes {
   gap: 0.2rem;
 }
 
+.calendar-commit-group {
+  min-width: 0;
+  padding: 0.8rem;
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--accent-green);
+  border-radius: 10px;
+  background: var(--bg-card);
+  box-shadow: 0 1px 3px var(--shadow-color);
+}
+
+.calendar-commit-group--compact {
+  padding: 0.35rem;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.calendar-commit-group-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.2rem 0.5rem;
+  margin-bottom: 0.35rem;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+
+.calendar-commit-group-project {
+  display: flex;
+  flex-direction: column;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid var(--border-color);
+  border-left: 2px solid var(--accent-blue);
+  border-radius: 0.35rem;
+  background: rgba(74, 158, 255, 0.12);
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.calendar-commit-project-label {
+  color: var(--text-primary);
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.calendar-commit-group-heading > span {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.calendar-commit-group--compact .calendar-commit-group-heading {
+  font-size: 0.68rem;
+}
+
+.calendar-commit-group--compact .calendar-commit-group-project {
+  padding: 0.15rem;
+  font-size: 0.65rem;
+}
+
+.calendar-commit-group--compact .calendar-commit-project-label {
+  font-size: 0.55rem;
+}
+
+.calendar-commit-item {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0.35rem 0;
+  border: 0;
+  border-top: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.calendar-commit-item-title,
+.calendar-commit-item-meta {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.calendar-commit-item-title { font-size: 0.78rem; }
+.calendar-commit-item-meta { color: var(--text-muted); font-size: 0.7rem; }
+.calendar-commit-group--compact .calendar-commit-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.2rem;
+  padding: 0.2rem 0;
+}
+.calendar-commit-group--compact .calendar-commit-item-title {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.67rem;
+}
+.calendar-commit-group--compact .calendar-commit-item-meta { flex: 0 0 auto; font-size: 0.62rem; }
+
+.calendar-commit-item:hover .calendar-commit-item-title { color: var(--accent-blue); }
+.calendar-commit-item:focus-visible,
+.calendar-commit-more summary:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+.calendar-commit-more summary { padding: 0.35rem 0 0; color: var(--accent-blue); font-size: 0.75rem; cursor: pointer; }
+.calendar-commit-group--compact .calendar-commit-more summary { font-size: 0.65rem; }
+
 .calendar-empty-state {
   grid-column: 1 / -1;
   padding: 1rem;

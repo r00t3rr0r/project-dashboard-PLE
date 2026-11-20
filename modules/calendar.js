@@ -691,6 +691,113 @@
     return chip;
   }
 
+  function getCommitEventDates() {
+    var commitDates = Object.create(null);
+    getTasks().forEach(function (task) {
+      var commits = task.githubCommitImport && task.githubCommitImport.commits;
+      if (!Array.isArray(commits)) return;
+      commits.forEach(function (commit) {
+        if (commit && commit.sha) commitDates['task-' + task.id + '-github-commit-' + commit.sha] = Date.parse(commit.date);
+      });
+    });
+    return commitDates;
+  }
+
+  function groupCommitEvents(events, commitDates) {
+    var groups = Object.create(null);
+    var items = [];
+    commitDates = commitDates || getCommitEventDates();
+    events.forEach(function (event) {
+      if (event.source !== 'github-commit') {
+        items.push(event);
+        return;
+      }
+      var key = String(event.projectId || '');
+      if (!groups[key]) {
+        groups[key] = { commitGroup: true, projectId: event.projectId || null, events: [] };
+        items.push(groups[key]);
+      }
+      groups[key].events.push(event);
+    });
+
+    Object.keys(groups).forEach(function (key) {
+      groups[key].events.sort(function (a, b) {
+        var dateA = String(a.date || a.startDate || '') + 'T' + String(a.startTime || '');
+        var dateB = String(b.date || b.startDate || '') + 'T' + String(b.startTime || '');
+        if (dateA !== dateB) return dateB.localeCompare(dateA);
+        var timeA = commitDates[a.id], timeB = commitDates[b.id];
+        if (isFinite(timeA) && isFinite(timeB) && timeA !== timeB) return timeB - timeA;
+        if (isFinite(timeA) !== isFinite(timeB)) return isFinite(timeA) ? -1 : 1;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
+    });
+    return items;
+  }
+
+  function createCommitGroup(group, compact) {
+    var container = document.createElement('section');
+    container.className = 'calendar-commit-group' + (compact ? ' calendar-commit-group--compact' : '');
+    container.addEventListener('click', function (event) { event.stopPropagation(); });
+    container.addEventListener('dblclick', function (event) { event.stopPropagation(); });
+
+    var heading = document.createElement('div');
+    heading.className = 'calendar-commit-group-heading';
+    var project = document.createElement('strong');
+    project.className = 'calendar-commit-group-project';
+    var projectLabel = getProjectLabel(group.projectId, 'Unbekanntes Projekt') || 'Ohne Projekt';
+    project.title = 'Projekt: ' + projectLabel;
+    var projectKind = document.createElement('span');
+    projectKind.className = 'calendar-commit-project-label';
+    projectKind.textContent = 'Projekt';
+    var projectName = document.createElement('span');
+    projectName.textContent = projectLabel;
+    project.appendChild(projectKind);
+    project.appendChild(projectName);
+    heading.appendChild(project);
+    var count = document.createElement('span');
+    count.textContent = group.events.length + (group.events.length === 1 ? ' Commit' : ' Commits');
+    heading.appendChild(count);
+    container.appendChild(heading);
+
+    function appendCommit(parent, event) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'calendar-commit-item';
+      var title = document.createElement('span');
+      title.className = 'calendar-commit-item-title';
+      title.textContent = String(event.title || 'GitHub-Commit').replace(/^GitHub-Commit:\s*/, '');
+      button.appendChild(title);
+      var meta = document.createElement('span');
+      meta.className = 'calendar-commit-item-meta';
+      var parts = [];
+      if (!compact) parts.push(getDisplayDate(event.date || event.startDate));
+      if (event.startTime) parts.push(event.startTime);
+      var employee = event.commitEmployeeId ? getEmployeeName(event.commitEmployeeId) : 'Nicht zugewiesen';
+      if (!compact) parts.push(employee);
+      meta.textContent = parts.filter(Boolean).join(' · ');
+      button.title = [title.textContent, getDisplayDate(event.date || event.startDate), event.startTime, employee].filter(Boolean).join(' · ');
+      button.setAttribute('aria-label', button.title);
+      button.appendChild(meta);
+      button.addEventListener('click', function (e) {
+        e.stopPropagation();
+        openEventDetailsModal(event.id);
+      });
+      parent.appendChild(button);
+    }
+
+    group.events.slice(0, 3).forEach(function (event) { appendCommit(container, event); });
+    if (group.events.length > 3) {
+      var details = document.createElement('details');
+      details.className = 'calendar-commit-more';
+      var summary = document.createElement('summary');
+      summary.textContent = compact ? '+' + (group.events.length - 3) + ' weitere' : (group.events.length - 3) + ' weitere Commits anzeigen';
+      details.appendChild(summary);
+      group.events.slice(3).forEach(function (event) { appendCommit(details, event); });
+      container.appendChild(details);
+    }
+    return container;
+  }
+
   function createDayActivityChip(activity) {
     var chip = document.createElement('div');
     var meta = getActivityTypeMeta(activity.type);
@@ -1241,6 +1348,7 @@
       renderTypeLegend(legendEvents);
       renderPendingInvites();
       var activityEntries = buildTaskActivityEntries();
+      var commitDates = isActivityMode ? null : getCommitEventDates();
       var overflowDaysCount = 0;
 
       var startOffset = getFirstDayOfMonth(year, month);
@@ -1270,6 +1378,8 @@
             if (bTs !== aTs) return bTs - aTs;
             return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
           });
+        } else {
+          dayItems = groupCommitEvents(dayItems, commitDates);
         }
 
         var hasOverflow = dayItems.length > 3;
@@ -1296,7 +1406,7 @@
 
         var itemsToRender = isExpanded ? dayItems : dayItems.slice(0, 3);
         itemsToRender.forEach(function (item) {
-          eventList.appendChild(isActivityMode ? createDayActivityChip(item) : createDayEventChip(item));
+          eventList.appendChild(isActivityMode ? createDayActivityChip(item) : (item.commitGroup ? createCommitGroup(item, true) : createDayEventChip(item)));
         });
 
         if (hasOverflow && !isExpanded) {
@@ -1315,13 +1425,13 @@
       updateOverflowToggleButton(overflowDaysCount);
 
       if (isActivityMode) renderActivityList(currentViewDate, activityEntries);
-      else renderEventList(currentViewDate, visibleEvents);
+      else renderEventList(currentViewDate, visibleEvents, commitDates);
     } catch (err) {
       console.error('[Calendar] Error:', err);
     }
   }
 
-  function renderEventList(viewDate, events) {
+  function renderEventList(viewDate, events, commitDates) {
     var listEl = document.getElementById('calendar-events-list');
     if (!listEl) return;
     listEl.innerHTML = '';
@@ -1350,7 +1460,11 @@
       return;
     }
 
-    monthEvents.sort(sortEvents).forEach(function (evt) {
+    groupCommitEvents(monthEvents.sort(sortEvents), commitDates).forEach(function (evt) {
+      if (evt.commitGroup) {
+        listEl.appendChild(createCommitGroup(evt, false));
+        return;
+      }
       var card = document.createElement('article');
       card.className = 'calendar-event-card';
 

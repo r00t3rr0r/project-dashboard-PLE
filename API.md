@@ -323,6 +323,11 @@ GitHub-Autor und die gewaehlte Mitarbeiterzuordnung und dokumentiert keine
 Arbeitsdauer. Im Mitarbeiterfilter erscheint er nur beim zugeordneten
 Mitarbeiter. Es werden keine Termineinladungen erzeugt. Eintraege
 werden mit der Aufgabe synchronisiert und beim Loeschen der Aufgabe entfernt.
+In der Terminansicht werden Commit-Eintraege nach Projekt gebuendelt:
+im Tagesfeld fuer den jeweiligen Tag, in der Terminliste fuer den angezeigten
+Monat. Jede Gruppe zeigt ihre Commit-Anzahl und die drei neuesten Eintraege;
+weitere lassen sich aufklappen. Einzelne Commit-Details bleiben erreichbar,
+und Mitarbeiter- sowie Terminartfilter gelten vor der Gruppierung.
 Im Arbeitsfluss erscheint die Tagesaufgabe am Commit-Tag als rueckwirkende
 Dokumentation, ohne einen kuenstlichen Fortschrittsgewinn anzugeben.
 Kalenderfelder und Detailkarten im Arbeitsfluss zeigen das zugehoerige Projekt
