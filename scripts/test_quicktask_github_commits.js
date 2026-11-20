@@ -324,6 +324,18 @@ test('requires a manual selection for commits without a linked author',async()=>
   assert.equal(created[0].subtasks[0].assigneeId,'bob');
 });
 
+test('AI Conf prefill suggests the linked employee in the commit selector',()=>{
+  const {h,element}=modalHarness();
+  const entry={sha:'a'.repeat(40),date:'2020-01-01T10:00:00Z',calendarDate:'2020-01-01',calendarTime:'10:00',
+    author:'Other display name',authorLogin:'ALICE',title:'Titel',titleEn:'Title',
+    descriptionDe:'Beschreibung',descriptionEn:'Description',message:'Original'};
+  h.window.QuickTaskModule.open({task:{projectId:'p1'},githubCommits:[entry]});
+  const html=element('qtm-github-daily-drafts').innerHTML;
+  assert.match(html,/value="alice" selected>Alice/);
+  assert.match(html,/Andere|Other display name/);
+  assert.equal(element('qtm-ai-assign').disabled,true);
+});
+
 test('AI Conf prefill creates editable daily drafts and rejects a missing commit subtask',async()=>{
   const {h,element,created}=modalHarness();
   const entries=[commit(1),commit(2)].map((item,index)=>({

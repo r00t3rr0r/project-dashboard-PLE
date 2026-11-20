@@ -274,6 +274,7 @@ Speichern muss jeder Commit einem zulaessigen Mitarbeiter zugeordnet werden.
 Eine eindeutige Uebereinstimmung zwischen GitHub-Autorenlogin und
 GitHub-Benutzername bzw. Profillink im Mitarbeiterprofil wird vorgeschlagen;
 fehlende oder mehrdeutige Zuordnungen muessen manuell ausgewaehlt werden.
+Im Mitarbeitermodus kann nur der angemeldete Mitarbeiter ausgewaehlt werden.
 Die Tagesaufgabe wird allen zugeordneten Autoren des Tages zugewiesen, jede
 Commit-Teilaufgabe dem jeweils ausgewaehlten Mitarbeiter. Die Beschreibung
 enthaelt beide Uebersetzungen und das

@@ -564,7 +564,7 @@
           dayGainSharePercent: dayGainSharePercent,
           assigneeId: entry.assigneeId || task.assigneeId || '',
           assigneeIds: entry.type === 'github-commit' && Array.isArray(task.assigneeIds) && task.assigneeIds.length
-            ? task.assigneeIds.slice() : (entry.assigneeId ? [entry.assigneeId] : []),
+            ? task.assigneeIds.slice() : (entry.assigneeId || task.assigneeId ? [entry.assigneeId || task.assigneeId] : []),
           projectId: task.projectId || null,
           updatedAt: entry.at || '',
           calendarTime: entry.calendarTime || '',

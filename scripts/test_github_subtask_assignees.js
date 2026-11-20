@@ -7,7 +7,14 @@ const {test} = require('node:test');
 test('commit subtask authors are visible and escaped in task views',()=>{
   const employees=[{id:'alice',name:'Alice <A>'},{id:'bob',name:'Bob'}];
   const window={DataLayer:{getEmployees:()=>employees}};
-  const document={readyState:'loading',addEventListener(){}};
+  const document={
+    readyState:'loading',addEventListener(){},
+    createTextNode:text=>text,
+    createElement:()=>({
+      innerHTML:'',
+      appendChild(text){this.innerHTML+=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+    })
+  };
   const kanban=fs.readFileSync(path.join(__dirname,'../modules/kanban.js'),'utf8').replace(
     'window.KanbanBoard = {','window.testSubtasks=renderSubtasks; window.KanbanBoard = {'
   );
