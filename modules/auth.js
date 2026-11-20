@@ -825,6 +825,7 @@
       'updateProject',
       'deleteProject',
       'createTask',
+      'createTasks',
       'updateTask',
       'deleteTask',
       'createCalendarEvent',
@@ -885,6 +886,31 @@
         return originalMethods.createTask(prepareTaskPayload(task));
       } catch (err) {
         return deny(err && err.message ? err.message : 'Aufgabe konnte nicht gespeichert werden.');
+      }
+    };
+
+    window.DataLayer.createTasks = function (tasks) {
+      if (!canCreateTask()) return deny('Nur angemeldete Mitarbeiter duerfen Aufgaben anlegen.');
+      try {
+        if (!Array.isArray(tasks)) throw new Error('Ungueltige Aufgabenliste.');
+        var user = getCurrentUser();
+        var prepared = tasks.map(function (task) {
+          var next = prepareTaskPayload(task);
+          if (getMode() === 'employee' && user) {
+            var commits = next.githubCommitImport && next.githubCommitImport.commits;
+            if (Array.isArray(commits) && commits.some(function (commit) { return String(commit.employeeId || '') !== String(user.id); })) {
+              throw new Error('Mitarbeiter duerfen Commits nur sich selbst zuordnen.');
+            }
+            if (Array.isArray(next.subtasks) && next.subtasks.some(function (subtask) { return subtask.assigneeId && String(subtask.assigneeId) !== String(user.id); })) {
+              throw new Error('Mitarbeiter duerfen Teilaufgaben nur sich selbst zuordnen.');
+            }
+            next.assigneeIds = [user.id];
+          }
+          return next;
+        });
+        return originalMethods.createTasks(prepared);
+      } catch (err) {
+        return deny(err && err.message ? err.message : 'Aufgaben konnten nicht gespeichert werden.');
       }
     };
 

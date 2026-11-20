@@ -18,7 +18,7 @@ function harness() {
   vm.runInNewContext(aiSource,sandbox);
   const quickSource=fs.readFileSync(path.join(__dirname,'../modules/quicktask.js'),'utf8').replace(
     'window.QuickTaskModule={',
-    'window.testQuickTask={fetchQuickTaskGitHubCommits,translateGitHubCommits,formatGitHubCommitDraft,groupGitHubCommitsByDay,getGitHubCommitDocumentationTaskId}; window.QuickTaskModule={'
+    'window.testQuickTask={fetchQuickTaskGitHubCommits,translateGitHubCommits,formatGitHubCommitDraft,groupGitHubCommitsByDay,getGitHubCommitDocumentationTaskId,findGitHubCommitEmployee}; window.QuickTaskModule={'
   );
   vm.runInNewContext(quickSource,sandbox);
   return {project,tasks,requests,window,sandbox,api:window.testQuickTask};
@@ -61,6 +61,19 @@ test('recognizes documented commits only for the selected project and repository
   assert.equal(h.api.getGitHubCommitDocumentationTaskId('b',h.project),'import');
   assert.equal(h.api.getGitHubCommitDocumentationTaskId('c',h.project),'');
   assert.equal(h.api.getGitHubCommitDocumentationTaskId('d',h.project),'');
+});
+
+test('only an unambiguous exact GitHub login is suggested for an author',()=>{
+  const {api}=harness();
+  const employees=[
+    {id:'a',name:'Alice',github:{username:'Alice'}},
+    {id:'b',name:'Alice',github:{profileUrl:'https://github.com/bob'}}
+  ];
+  assert.equal(api.findGitHubCommitEmployee({authorLogin:'ALICE'},employees),'a');
+  assert.equal(api.findGitHubCommitEmployee({authorLogin:'bob'},employees),'b');
+  assert.equal(api.findGitHubCommitEmployee({author:'Alice'},employees),'');
+  assert.equal(api.findGitHubCommitEmployee({authorLogin:'unknown'},employees),'');
+  assert.equal(api.findGitHubCommitEmployee({authorLogin:'alice'},employees.concat({id:'c',github:{username:'alice'}})),'');
 });
 
 test('translates Turkish messages in both languages and keeps original text in the draft',async()=>{
@@ -141,7 +154,7 @@ function modalHarness() {
   h.sandbox.setTimeout=()=>{};
   h.sandbox.alert=message=>{throw new Error(message);};
   Object.assign(h.window.DataLayer,{
-    getProjects:()=>[h.project],getEmployees:()=>[],getLabels:()=>[],
+    getProjects:()=>[h.project],getEmployees:()=>[{id:'alice',name:'Alice',github:{username:'alice'}},{id:'bob',name:'Bob',github:{username:'bob'}}],getLabels:()=>[],
     generateId:()=>Math.random().toString(),createTask:task=>{created.push(task);h.tasks.push(task);task.id='task'+created.length;return task;},
     createTasks:tasks=>tasks.map(task=>h.window.DataLayer.createTask(task)),
     waitForTaskAndCalendarSave:()=>Promise.resolve(true)
@@ -165,11 +178,14 @@ test('only selected commits become task metadata after applying the preview',asy
   assert.match(element('qtm-github-commit-review').innerHTML,/EN: Fixed login/);
   element('qtm-github-commit-review').querySelectorAll=()=>[{getAttribute:()=>commit(1).sha}];
   element('qtm-github-create').click();
+  element('qtm-github-assignee-'+commit(1).sha).value='alice';
   assert.match(element('qtm-desc').value,/Original: Giriş hatasını düzelt/);
+  assert.match(element('qtm-title').value,/^Anmeldung korrigiert - /);
   assert.match(element('qtm-desc').value,/EN: Fixed login\nEnglish message/);
   element('qt-submit').click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(created.length,1);
+  assert.match(created[0].title,/^Anmeldung korrigiert - /);
   assert.equal(created[0].sourceCommitShas.join(','),commit(1).sha);
   assert.match(created[0].subtasks[0].title,/DE: Anmeldung korrigiert \| EN: Fixed login/);
 });
@@ -191,6 +207,9 @@ test('creates a completed task per local commit day and linked chronological cal
     await new Promise(resolve=>setImmediate(resolve));
     element('qtm-github-commit-review').querySelectorAll=()=>items.slice(0,3).map(item=>({getAttribute:()=>item.sha}));
     element('qtm-github-create').click();
+    element('qtm-github-assignee-'+items[0].sha).value='alice';
+    element('qtm-github-assignee-'+items[1].sha).value='alice';
+    element('qtm-github-assignee-'+items[2].sha).value='bob';
     assert.match(element('qtm-title').value,/2020-01-01/);
     assert.match(element('qtm-github-daily-drafts').innerHTML,/2020-01-02/);
     const translated=items.slice(0,3).map(item=>({
@@ -210,6 +229,10 @@ test('creates a completed task per local commit day and linked chronological cal
     assert.equal(created[1].title,'Bearbeiteter Titel');
     assert.equal(created[0].sourceCommitShas.join(','),items[0].sha);
     assert.equal(created[1].sourceCommitShas.join(','),[items[1].sha,items[2].sha].join(','));
+    assert.equal(created[0].assigneeIds.join(','),'alice');
+    assert.equal(created[1].assigneeIds.join(','),'alice,bob');
+    assert.equal(created[1].subtasks[1].assigneeId,'bob');
+    assert.equal(created[1].subtasks[1].sourceCommitSha,items[2].sha);
     assert(created.every(task=>task.status==='done'&&task.subtasks.every(subtask=>subtask.completed)));
     assert(created.every(task=>Date.parse(task.createdAt)>Date.parse('2020-01-03')));
 
@@ -237,10 +260,12 @@ test('creates a completed task per local commit day and linked chronological cal
     assert.equal(events[1].date,'2020-01-02');
     assert.equal(events[1].startTime,'00:30');
     assert.equal(events[2].startTime,'09:30');
+    assert.equal(events[1].commitEmployeeId,'alice');
+    assert.equal(events[2].commitEmployeeId,'bob');
     assert.equal(events[1].taskId,created[1].id);
     const calendarWindow={DataLayer:data};
     const calendarSource=fs.readFileSync(path.join(__dirname,'../modules/calendar.js'),'utf8')
-      .replace('window.CalendarModule = {','window.testActivities = buildTaskActivityEntries; window.CalendarModule = {');
+      .replace('window.CalendarModule = {','window.testActivities = buildTaskActivityEntries; window.testFilters={eventMatchesEmployeeFilter,taskMatchesEmployeeFilter,getEventParticipants}; window.CalendarModule = {');
     vm.runInNewContext(calendarSource,{window:calendarWindow,document:{addEventListener(){}},console});
     const activities=calendarWindow.testActivities();
     assert.equal(activities.length,2);
@@ -248,21 +273,55 @@ test('creates a completed task per local commit day and linked chronological cal
     assert.equal(activities[1].date,'2020-01-02');
     assert(activities.every(activity=>activity.type==='github-commit'&&activity.dayProgressGain===0));
     assert.equal(activities[1].calendarTime,'09:30');
+    assert.equal(activities[1].assigneeIds.join(','),'alice,bob');
+    assert(calendarWindow.testFilters.taskMatchesEmployeeFilter(created[1],'bob'));
+    assert(calendarWindow.testFilters.eventMatchesEmployeeFilter(events[2],'bob'));
+    assert(!calendarWindow.testFilters.eventMatchesEmployeeFilter(events[2],'alice'));
+    assert(!calendarWindow.testFilters.eventMatchesEmployeeFilter(events[2],'__unassigned__'));
+    assert(calendarWindow.testFilters.eventMatchesEmployeeFilter({source:'github-commit'},'__unassigned__'));
+    assert.equal(calendarWindow.testFilters.getEventParticipants(events[2]).length,0);
     const updated=data.getTaskById(created[0].id);
     updated.title='Spaeter bearbeitet';
     data.updateTask(updated);
     const updatedActivities=calendarWindow.testActivities();
     assert(updatedActivities.some(activity=>activity.date==='2020-01-01'&&activity.type==='github-commit'));
     assert(updatedActivities.some(activity=>activity.date!=='2020-01-01'&&activity.type==='updated'));
+    const updatedSecond=data.getTaskById(created[1].id);
+    updatedSecond.githubCommitImport.commits[1].employeeId='alice';
+    data.updateTask(updatedSecond);
+    assert.equal(data.getCalendarEvents()[2].commitEmployeeId,'alice');
     data.tasks.length=0;data.calendarEvents.length=0;data.rehydrate();
     events=data.getCalendarEvents();
     assert.equal(events.length,3);
+    assert.equal(events[2].commitEmployeeId,'alice');
     data.deleteTask(created[0].id);
     assert.equal(data.getCalendarEvents().length,2);
   } finally {
     if(previousTz===undefined)delete process.env.TZ;
     else process.env.TZ=previousTz;
   }
+});
+
+test('requires a manual selection for commits without a linked author',async()=>{
+  const {h,element,created}=modalHarness();
+  const item=commit(1);
+  h.sandbox.fetch=async()=>({ok:true,json:async()=>[item]});
+  h.window.QuickTaskModule.open();
+  element('qtm-project').value='p1';
+  element('qtm-github-commits').click();
+  await new Promise(resolve=>setImmediate(resolve));
+  element('qtm-github-commit-review').querySelectorAll=()=>[{getAttribute:()=>item.sha}];
+  element('qtm-github-create').click();
+  element('qt-submit').click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(created.length,0);
+  assert.match(element('qtm-github-daily-status').textContent,/jedem Commit einen Mitarbeiter/);
+  element('qtm-github-assignee-'+item.sha).value='bob';
+  element('qt-submit').click();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(created[0].assigneeId,'bob');
+  assert.equal(created[0].githubCommitImport.commits[0].employeeId,'bob');
+  assert.equal(created[0].subtasks[0].assigneeId,'bob');
 });
 
 test('AI Conf prefill creates editable daily drafts and rejects a missing commit subtask',async()=>{
@@ -278,6 +337,8 @@ test('AI Conf prefill creates editable daily drafts and rejects a missing commit
   element('qtm-github-title-1').value='Tagesaufgabe';
   element('qtm-github-desc-1').value='Beschreibung';
   element('qtm-github-subtasks-1').value='Eintrag ohne SHA';
+  element('qtm-github-assignee-'+entries[0].sha).value='alice';
+  element('qtm-github-assignee-'+entries[1].sha).value='bob';
   element('qt-submit').click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(created.length,0);
@@ -302,6 +363,7 @@ test('reports persistence failure without closing the task editor',async()=>{
   await new Promise(resolve=>setImmediate(resolve));
   element('qtm-github-commit-review').querySelectorAll=()=>[{getAttribute:()=>item.sha}];
   element('qtm-github-create').click();
+  element('qtm-github-assignee-'+item.sha).value='alice';
   element('qt-submit').click();
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(closed,false);

@@ -298,7 +298,7 @@ function fetchRecentCommits(project,since,until){
         var timestamp=Date.parse(date);
         if(!item.sha||seen.has(item.sha)||!isFinite(timestamp)||(since&&timestamp<Date.parse(since))||(until&&timestamp>Date.parse(until)))return;
         seen.add(item.sha);
-        commits.push({sha:item.sha,message:String(source.message||''),date:date,author:String((source.author||{}).name||(item.author||{}).login||''),url:'https://github.com/'+encodeURIComponent(github.owner)+'/'+encodeURIComponent(github.repo)+'/commit/'+encodeURIComponent(item.sha)});
+        commits.push({sha:item.sha,message:String(source.message||''),date:date,author:String((source.author||{}).name||(item.author||{}).login||''),authorLogin:String((item.author||{}).login||''),url:'https://github.com/'+encodeURIComponent(github.owner)+'/'+encodeURIComponent(github.repo)+'/commit/'+encodeURIComponent(item.sha)});
       });
       if(items.length===100)return page(number+1);
       return commits;
@@ -320,6 +320,7 @@ function commitCalendarData(commit){
     descriptionEn:commit.descriptionEn,
     message:commit.message,
     author:commit.author,
+    authorLogin:commit.authorLogin||'',
     url:commit.url
   };
 }

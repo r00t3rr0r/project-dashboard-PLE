@@ -391,7 +391,8 @@
 
     var subtaskItems = subtasks.map(function (item) {
       return '<li class="' + (item.completed ? 'is-complete' : '') + '"><span class="material-symbols-rounded" aria-hidden="true">' +
-        (item.completed ? 'check_circle' : 'radio_button_unchecked') + '</span><span>' + escapeHtml(item.title || 'Teilaufgabe') + '</span></li>';
+        (item.completed ? 'check_circle' : 'radio_button_unchecked') + '</span><span>' + escapeHtml(item.title || 'Teilaufgabe') +
+        (item.assigneeId ? ' · ' + escapeHtml(getName(context.employeesById, item.assigneeId, 'Unbekannter Mitarbeiter')) : '') + '</span></li>';
     });
 
     var noteItems = (Array.isArray(task.notes) ? task.notes : []).map(function (note) {

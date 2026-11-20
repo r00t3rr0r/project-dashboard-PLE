@@ -279,6 +279,10 @@
 
   function eventMatchesEmployeeFilter(event, employeeId) {
     if (!employeeId) return true;
+    if (event.source === 'github-commit') {
+      var commitEmployeeId = String(event.commitEmployeeId || '');
+      return employeeId === UNASSIGNED_FILTER_VALUE ? !commitEmployeeId : commitEmployeeId === String(employeeId);
+    }
     if (employeeId === UNASSIGNED_FILTER_VALUE) {
       return getEventParticipants(event).length === 0;
     }
@@ -287,9 +291,11 @@
 
   function taskMatchesEmployeeFilter(task, employeeId) {
     if (!employeeId) return true;
-    var assigneeId = String(task && task.assigneeId || '').trim();
-    if (employeeId === UNASSIGNED_FILTER_VALUE) return !assigneeId;
-    return assigneeId === String(employeeId);
+    var assigneeIds = Array.isArray(task && task.assigneeIds) ? task.assigneeIds.slice() : [];
+    if (task && task.assigneeId) assigneeIds.push(task.assigneeId);
+    assigneeIds = assigneeIds.map(function (id) { return String(id || '').trim(); }).filter(Boolean);
+    if (employeeId === UNASSIGNED_FILTER_VALUE) return !assigneeIds.length;
+    return assigneeIds.indexOf(String(employeeId)) !== -1;
   }
 
   function getSelectedEmployeeName() {
@@ -557,6 +563,8 @@
           dayProgressGain: dayProgressGain,
           dayGainSharePercent: dayGainSharePercent,
           assigneeId: entry.assigneeId || task.assigneeId || '',
+          assigneeIds: entry.type === 'github-commit' && Array.isArray(task.assigneeIds) && task.assigneeIds.length
+            ? task.assigneeIds.slice() : (entry.assigneeId ? [entry.assigneeId] : []),
           projectId: task.projectId || null,
           updatedAt: entry.at || '',
           calendarTime: entry.calendarTime || '',
@@ -686,9 +694,10 @@
   function createDayActivityChip(activity) {
     var chip = document.createElement('div');
     var meta = getActivityTypeMeta(activity.type);
-    var assigneeName = activity.assigneeId ? getEmployeeName(activity.assigneeId) : 'Nicht zugewiesen';
+    var assigneeIds = Array.isArray(activity.assigneeIds) && activity.assigneeIds.length ? activity.assigneeIds : (activity.assigneeId ? [activity.assigneeId] : []);
+    var assigneeName = assigneeIds.length ? assigneeIds.map(getEmployeeName).join(', ') : 'Nicht zugewiesen';
     var projectLabel = getProjectLabel(activity.projectId, 'Unbekanntes Projekt') || 'Ohne Projekt';
-    var workplace = activity.assigneeId ? getEmployeeWorkplace(activity.assigneeId) : '';
+    var workplace = assigneeIds.length === 1 ? getEmployeeWorkplace(assigneeIds[0]) : '';
     var metaParts = [meta.label, assigneeName];
     if (workplace) metaParts.push(workplace);
     metaParts.push(activity.progress + '%');
@@ -705,8 +714,16 @@
 
     var projectEl = document.createElement('span');
     projectEl.className = 'calendar-activity-project';
-    projectEl.textContent = activity.projectId ? 'Projekt: ' + projectLabel : projectLabel;
-    projectEl.title = projectEl.textContent;
+    var projectText = activity.projectId ? 'Projekt: ' + projectLabel : projectLabel;
+    projectEl.title = projectText;
+    var projectIcon = document.createElement('span');
+    projectIcon.className = 'material-symbols-rounded';
+    projectIcon.setAttribute('aria-hidden', 'true');
+    projectIcon.textContent = 'folder';
+    var projectName = document.createElement('span');
+    projectName.textContent = projectText;
+    projectEl.appendChild(projectIcon);
+    projectEl.appendChild(projectName);
 
     var metaEl = document.createElement('span');
     metaEl.className = 'calendar-event-chip-meta';
@@ -735,7 +752,7 @@
     chip.appendChild(growthBar);
 
     requestAnimationFrame(function () {
-      updateChipTooltip(chip, titleEl, projectEl.textContent + ' | ' + (activity.taskTitle || 'Aufgabe') + ' | ' + metaParts.join(' | ') + (activity.type === 'github-commit' ? ' | Rueckwirkende Dokumentation' : ' | Gesamt ' + totalProgress + '% | Plus +' + dayGain + '%'));
+      updateChipTooltip(chip, titleEl, projectText + ' | ' + (activity.taskTitle || 'Aufgabe') + ' | ' + metaParts.join(' | ') + (activity.type === 'github-commit' ? ' | Rueckwirkende Dokumentation' : ' | Gesamt ' + totalProgress + '% | Plus +' + dayGain + '%'));
     });
 
     return chip;
@@ -832,6 +849,9 @@
     rows.push('<div class="calendar-detail-item"><span class="calendar-detail-label">Typ</span><span class="calendar-detail-value">' + escapeHtml(meta.label) + '</span></div>');
     rows.push('<div class="calendar-detail-item"><span class="calendar-detail-label">Ort</span><span class="calendar-detail-value">' + escapeHtml(evt.location || 'Nicht angegeben') + '</span></div>');
     rows.push('<div class="calendar-detail-item"><span class="calendar-detail-label">Projekt</span><span class="calendar-detail-value">' + escapeHtml(projectLabel || 'Kein Projekt') + '</span></div>');
+    if (evt.source === 'github-commit') {
+      rows.push('<div class="calendar-detail-item"><span class="calendar-detail-label">Mitarbeiter</span><span class="calendar-detail-value">' + escapeHtml(evt.commitEmployeeId ? getEmployeeName(evt.commitEmployeeId) : 'Nicht zugewiesen') + '</span></div>');
+    }
     rows.push('<div class="calendar-detail-item"><span class="calendar-detail-label">Organisator</span><span class="calendar-detail-value">' + escapeHtml(organizerName || 'Nicht angegeben') + '</span></div>');
 
     var participantIds = getEventParticipants(evt);
@@ -1335,7 +1355,9 @@
       card.className = 'calendar-event-card';
 
       var meta = getEventTypeMeta(normalizeEventType(evt.type || 'meeting'));
-      var participants = getEventParticipants(evt).map(getEmployeeName);
+      var participants = evt.source === 'github-commit'
+        ? (evt.commitEmployeeId ? [getEmployeeName(evt.commitEmployeeId)] : [])
+        : getEventParticipants(evt).map(getEmployeeName);
       var projectLabel = getProjectLabel(evt.projectId);
       var summary = getRsvpSummary(evt);
       var details = [];
@@ -1380,7 +1402,7 @@
 
     activities.forEach(function (activity) {
       if (activity.taskId) uniqueTaskIds[activity.taskId] = true;
-      if (activity.assigneeId) uniqueEmployeeIds[activity.assigneeId] = true;
+      (activity.assigneeIds || (activity.assigneeId ? [activity.assigneeId] : [])).forEach(function (id) { uniqueEmployeeIds[id] = true; });
       if (activity.type === 'completed') completedCount += 1;
       progressTotal += clampProgress(activity.progress);
     });
@@ -1442,7 +1464,7 @@
       var completedToday = 0;
 
       dailyActivities.forEach(function (activity) {
-        if (activity.assigneeId) uniqueEmployees[activity.assigneeId] = true;
+        (activity.assigneeIds || (activity.assigneeId ? [activity.assigneeId] : [])).forEach(function (id) { uniqueEmployees[id] = true; });
         if (activity.type === 'completed') completedToday += 1;
       });
 
@@ -1458,8 +1480,9 @@
       dailyActivities.forEach(function (activity) {
         var card = document.createElement('article');
         var typeMeta = getActivityTypeMeta(activity.type);
-        var assigneeName = activity.assigneeId ? getEmployeeName(activity.assigneeId) : 'Nicht zugewiesen';
-        var workplace = activity.assigneeId ? getEmployeeWorkplace(activity.assigneeId) : '';
+        var assigneeIds = Array.isArray(activity.assigneeIds) && activity.assigneeIds.length ? activity.assigneeIds : (activity.assigneeId ? [activity.assigneeId] : []);
+        var assigneeName = assigneeIds.length ? assigneeIds.map(getEmployeeName).join(', ') : 'Nicht zugewiesen';
+        var workplace = assigneeIds.length === 1 ? getEmployeeWorkplace(assigneeIds[0]) : '';
         var projectLabel = getProjectLabel(activity.projectId, 'Unbekanntes Projekt') || 'Ohne Projekt';
         var displayTime = activity.calendarTime || getDisplayTime(activity.updatedAt);
         var totalProgress = clampProgress(activity.progress);
@@ -1472,7 +1495,7 @@
           '<span class="calendar-event-tag" style="border-color:' + typeMeta.color + ';color:' + typeMeta.color + '">' + escapeHtml(typeMeta.label) + '</span>' +
           '<span class="calendar-event-date">' + escapeHtml(getTaskStatusLabel(activity.status)) + '</span>' +
           '</div>' +
-          '<div class="calendar-activity-project"><span class="material-symbols-rounded" aria-hidden="true">folder</span><span>' + escapeHtml(activity.projectId ? 'Projekt: ' + projectLabel : projectLabel) + '</span></div>' +
+          '<div class="calendar-activity-project" title="' + escapeHtml(activity.projectId ? 'Projekt: ' + projectLabel : projectLabel) + '"><span class="material-symbols-rounded" aria-hidden="true">folder</span><span>' + escapeHtml(activity.projectId ? 'Projekt: ' + projectLabel : projectLabel) + '</span></div>' +
           '<h3>' + escapeHtml(activity.taskTitle || 'Aufgabe') + '</h3>' +
           '<div class="calendar-event-meta">' + escapeHtml(assigneeName) + '</div>' +
           (workplace ? '<div class="calendar-activity-workplace"><span class="material-symbols-rounded" aria-hidden="true">location_on</span><span>' + escapeHtml(workplace) + '</span></div>' : '') +

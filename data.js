@@ -2497,6 +2497,7 @@
         var commit = entry.commit;
         nextPayload.title = 'GitHub-Commit: ' + (commit.title || 'Commit') + (commit.titleEn ? ' / ' + commit.titleEn : '') + ' [' + commit.sha.slice(0, 7) + '] · ' + (commit.author || 'Unbekannt');
         nextPayload.startTime = commit.calendarTime;
+        nextPayload.commitEmployeeId = String(commit.employeeId || '');
         nextPayload.description = 'Rueckwirkende Dokumentation eines GitHub-Commits; keine erfasste Arbeitsdauer.\n' +
           'Aufgabe: ' + (task.title || 'Aufgabe') + '\n' +
           'Autor: ' + (commit.author || 'Unbekannt') + '\n' +
@@ -2523,6 +2524,7 @@
           taskId: current.taskId,
           source: current.source,
           startTime: entry.commit ? current.startTime : undefined,
+          commitEmployeeId: entry.commit ? (current.commitEmployeeId || '') : undefined,
           description: entry.commit ? current.description : undefined
         });
         var nextSerialized = JSON.stringify({
@@ -2534,6 +2536,7 @@
           taskId: nextPayload.taskId,
           source: nextPayload.source,
           startTime: nextPayload.startTime,
+          commitEmployeeId: nextPayload.commitEmployeeId,
           description: nextPayload.description
         });
 
@@ -2547,6 +2550,7 @@
           current.source = nextPayload.source;
           if (entry.commit) {
             current.startTime = nextPayload.startTime;
+            current.commitEmployeeId = nextPayload.commitEmployeeId;
             current.description = nextPayload.description;
           }
           current.updatedAt = nextPayload.updatedAt;

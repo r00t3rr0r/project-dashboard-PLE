@@ -1535,9 +1535,10 @@
     subtasks.forEach(function(st) {
       var stateClass = st.completed ? ' is-done' : '';
       var stateIcon = st.completed ? 'check_circle' : 'radio_button_unchecked';
+      var assignee = st.assigneeId ? getAssignee(st) : null;
       html += '<button type="button" class="kanban-subtask-item' + stateClass + '" data-kanban-subtask-toggle="' + escapeHtml(st.id || '') + '" data-parent-task-id="' + escapeHtml(parentTaskId || '') + '" aria-pressed="' + (st.completed ? 'true' : 'false') + '" title="Teilaufgabe umschalten">' +
         '<span class="material-symbols-rounded" aria-hidden="true">' + stateIcon + '</span>' +
-        '<span class="kanban-subtask-text">' + escapeHtml(st.title) + '</span>' +
+        '<span class="kanban-subtask-text">' + escapeHtml(st.title) + (st.assigneeId ? ' · ' + escapeHtml(assignee ? assignee.name : 'Unbekannter Mitarbeiter') : '') + '</span>' +
         '</button>';
     });
     html += '</div>';
@@ -2280,7 +2281,8 @@
     if (schedule.rangeStart || schedule.rangeEnd) scheduleDetails.push('Zeitraum: ' + (schedule.rangeStart || 'offen') + ' bis ' + (schedule.rangeEnd || 'offen'));
 
     var subtaskItems = subtasks.map(function (item) {
-      return '<li class="' + (item.completed ? 'is-complete' : '') + '"><button type="button" class="kanban-task-detail-subtask-toggle" data-detail-subtask-toggle="' + escapeHtml(item.id || '') + '" aria-pressed="' + (item.completed ? 'true' : 'false') + '"><span class="material-symbols-rounded" aria-hidden="true">' + (item.completed ? 'check_circle' : 'radio_button_unchecked') + '</span><span>' + escapeHtml(item.title || 'Teilaufgabe') + '</span></button></li>';
+      var assignee = item.assigneeId ? getAssignee(item) : null;
+      return '<li class="' + (item.completed ? 'is-complete' : '') + '"><button type="button" class="kanban-task-detail-subtask-toggle" data-detail-subtask-toggle="' + escapeHtml(item.id || '') + '" aria-pressed="' + (item.completed ? 'true' : 'false') + '"><span class="material-symbols-rounded" aria-hidden="true">' + (item.completed ? 'check_circle' : 'radio_button_unchecked') + '</span><span>' + escapeHtml(item.title || 'Teilaufgabe') + (item.assigneeId ? ' · ' + escapeHtml(assignee ? assignee.name : 'Unbekannter Mitarbeiter') : '') + '</span></button></li>';
     });
     var noteItems = notes.map(function (note) {
       return '<li><span class="material-symbols-rounded" aria-hidden="true">sticky_note_2</span><span>' + escapeHtml(note.text || '') + (note.createdAt ? '<small>' + escapeHtml(formatDateTimeShort(note.createdAt)) + '</small>' : '') + '</span></li>';

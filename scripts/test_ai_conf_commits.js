@@ -190,6 +190,20 @@ test('omits missing time filters and keeps commits outside a 24h window',async()
   assert.equal(query.get('until'),until);
 });
 
+test('preserves the GitHub author login through fetching and calendar prefill',async()=>{
+  const harness=makeHarness();
+  const item=githubCommit(1);
+  item.author={login:'AliceGH'};
+  harness.sandbox.fetch=async()=>({ok:true,json:async()=>[item]});
+  const commits=await harness.api.fetchRecentCommits(harness.project,'',until);
+  assert.equal(commits[0].authorLogin,'AliceGH');
+  Object.assign(commits[0],{title:'Titel',titleEn:'Title',descriptionDe:'Beschreibung',descriptionEn:'Description'});
+  harness.root.querySelectorAll=()=>[{getAttribute:()=>item.sha}];
+  harness.api.setDraft({projectId:'p1',mode:'githubCommits',repository:'acme/app',since:'',until,items:[{title:'Entwurf',commits}]});
+  harness.api.importCommitTask(harness.root);
+  assert.equal(harness.openedDrafts[0].githubCommits[0].authorLogin,'AliceGH');
+});
+
 test('queries the entire history even after an import so unselected commits remain available',async()=>{
   const harness = makeHarness();
   const old=githubCommit(1,'2020-01-01T10:00:00Z');

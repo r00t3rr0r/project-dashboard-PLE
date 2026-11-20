@@ -269,8 +269,14 @@ als erledigten Teilaufgaben. Titel, Beschreibung und Teilaufgaben koennen pro
 Tag bearbeitet werden. Der Titelvorschlag nutzt bis zu zwei verschiedene
 deutsche Commit-Titel und verweist gegebenenfalls auf weitere; jede
 Teilaufgabe muss die zugehoerige vollstaendige SHA enthalten. Planung, Aufwand,
-Labels, Zuweisung und hochgeladene Dateien gelten
-fuer jede Tagesaufgabe. Die Beschreibung enthaelt beide Uebersetzungen und das
+Labels und hochgeladene Dateien gelten fuer jede Tagesaufgabe. Vor dem
+Speichern muss jeder Commit einem zulaessigen Mitarbeiter zugeordnet werden.
+Eine eindeutige Uebereinstimmung zwischen GitHub-Autorenlogin und
+GitHub-Benutzername bzw. Profillink im Mitarbeiterprofil wird vorgeschlagen;
+fehlende oder mehrdeutige Zuordnungen muessen manuell ausgewaehlt werden.
+Die Tagesaufgabe wird allen zugeordneten Autoren des Tages zugewiesen, jede
+Commit-Teilaufgabe dem jeweils ausgewaehlten Mitarbeiter. Die Beschreibung
+enthaelt beide Uebersetzungen und das
 Original. Die ausgewaehlten SHAs werden erst beim Erstellen gespeichert.
 Unvollstaendige oder nicht eindeutig zuordenbare Uebersetzungen fuehren zu
 einer Fehlermeldung. KI-Ausgaben bitte pruefen.
@@ -308,8 +314,9 @@ Beim Speichern entsteht pro ausgewaehltem Commit ein
 mit der Aufgabe verknuepfter Kalendereintrag in der Terminansicht. Datum und
 Uhrzeit entsprechen dem GitHub-Committer-Zeitpunkt in der lokalen Zeitzone des
 importierenden Browsers und bleiben danach unveraendert. Der Eintrag nennt den
-GitHub-Autor und dokumentiert weder Arbeitsdauer noch Mitarbeiterzuweisung:
-Im Mitarbeiterfilter erscheint er daher unter „Ohne Mitarbeiter“. Eintraege
+GitHub-Autor und die gewaehlte Mitarbeiterzuordnung und dokumentiert keine
+Arbeitsdauer. Im Mitarbeiterfilter erscheint er nur beim zugeordneten
+Mitarbeiter. Es werden keine Termineinladungen erzeugt. Eintraege
 werden mit der Aufgabe synchronisiert und beim Loeschen der Aufgabe entfernt.
 Im Arbeitsfluss erscheint die Tagesaufgabe am Commit-Tag als rueckwirkende
 Dokumentation, ohne einen kuenstlichen Fortschrittsgewinn anzugeben.
@@ -321,6 +328,7 @@ Tagesaufgaben werden gemeinsam gespeichert; ein Speicherfehler wird im
 Aufgabendialog angezeigt. Die Aufgaben- und Kalenderdaten sind separate
 Speicherschluessel und daher keine gemeinsame Datenbanktransaktion.
 Fruehere Importe ohne strukturierte Commit-Daten werden nicht nachgetragen.
+Bestehende Import-Aufgaben werden nicht automatisch neu zugeordnet.
 Bereits ueber diese Funktion importierte SHAs werden fuer dasselbe Projekt und
 Repository beim Abruf und vor der Uebernahme ausgefiltert. Das ist kein
 serverseitiger Eindeutigkeitsschutz gegen gleichzeitige Importe mehrerer Nutzer.
