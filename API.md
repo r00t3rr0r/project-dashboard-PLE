@@ -266,8 +266,10 @@ uebersetzt die vollstaendige Nachricht unabhaengig von der Ausgangssprache,
 auch aus dem Tuerkischen, nach Deutsch und Englisch. Fuer jeden lokalen
 Commit-Tag entsteht eine eigene erledigte Aufgabe mit den ausgewaehlten Commits
 als erledigten Teilaufgaben. Titel, Beschreibung und Teilaufgaben koennen pro
-Tag bearbeitet werden; jede Teilaufgabe muss die zugehoerige vollstaendige SHA
-enthalten. Planung, Aufwand, Labels, Zuweisung und hochgeladene Dateien gelten
+Tag bearbeitet werden. Der Titelvorschlag nutzt bis zu zwei verschiedene
+deutsche Commit-Titel und verweist gegebenenfalls auf weitere; jede
+Teilaufgabe muss die zugehoerige vollstaendige SHA enthalten. Planung, Aufwand,
+Labels, Zuweisung und hochgeladene Dateien gelten
 fuer jede Tagesaufgabe. Die Beschreibung enthaelt beide Uebersetzungen und das
 Original. Die ausgewaehlten SHAs werden erst beim Erstellen gespeichert.
 Unvollstaendige oder nicht eindeutig zuordenbare Uebersetzungen fuehren zu
@@ -311,6 +313,9 @@ Im Mitarbeiterfilter erscheint er daher unter „Ohne Mitarbeiter“. Eintraege
 werden mit der Aufgabe synchronisiert und beim Loeschen der Aufgabe entfernt.
 Im Arbeitsfluss erscheint die Tagesaufgabe am Commit-Tag als rueckwirkende
 Dokumentation, ohne einen kuenstlichen Fortschrittsgewinn anzugeben.
+Kalenderfelder und Detailkarten im Arbeitsfluss zeigen das zugehoerige Projekt
+auch fuer andere Aufgaben sichtbar an; nicht zugeordnete Aufgaben sind als
+"Ohne Projekt" gekennzeichnet.
 Das tatsaechliche Erstellungsdatum der Aufgabe bleibt erhalten. Die
 Tagesaufgaben werden gemeinsam gespeichert; ein Speicherfehler wird im
 Aufgabendialog angezeigt. Die Aufgaben- und Kalenderdaten sind separate

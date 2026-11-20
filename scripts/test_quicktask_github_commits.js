@@ -86,6 +86,27 @@ test('translates Turkish messages in both languages and keeps original text in t
   assert.equal(draft.subtasks.length,9);
 });
 
+test('daily titles reflect distinct translated commit titles, including when there are more than two',()=>{
+  const h=harness();
+  const make=(i,date,title)=>({
+    sha:commit(i).sha,date,author:'Alice',message:'Original',title,titleEn:'English',
+    descriptionDe:'Deutsch',descriptionEn:'English'
+  });
+  const groups=h.api.groupGitHubCommitsByDay([
+    make(1,'2020-01-01T10:00:00Z','Anmeldung verbessert'),
+    make(2,'2020-01-01T11:00:00Z','Fehler korrigiert'),
+    make(3,'2020-01-01T12:00:00Z','Anmeldung verbessert'),
+    make(4,'2020-01-01T13:00:00Z','Dokumentation ergänzt'),
+    make(5,'2020-01-02T10:00:00Z','Kalender aktualisiert')
+  ]);
+  assert.equal(groups[0].draft.title,'Anmeldung verbessert · Fehler korrigiert (+1 weitere Commit-Titel)');
+  assert.equal(groups[1].draft.title,'Kalender aktualisiert');
+  assert.throws(()=>h.api.formatGitHubCommitDraft([{title:'  '}]),/fehlen deutsche Commit-Titel/);
+  const long=h.api.formatGitHubCommitDraft([{title:'Langer Titel '.repeat(20)}]).title;
+  assert(long.length<=60);
+  assert(long.endsWith('…'));
+});
+
 test('rejects missing or unidentifiable translations instead of assigning the wrong language',async()=>{
   const h=harness();
   h.window.LocalOllama={generate:async()=>({draft:{taskSuggestions:[{note:'wrong',titleDe:'Titel',titleEn:'Title',descriptionDe:'Text',descriptionEn:'Text'}]}})};

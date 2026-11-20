@@ -254,11 +254,11 @@
     return match ? String(match.workplace || '').trim() : '';
   }
 
-  function getProjectLabel(id) {
+  function getProjectLabel(id, missingLabel) {
     if (!id) return '';
     var projects = window.DataLayer && window.DataLayer.getProjects ? window.DataLayer.getProjects() : [];
     var match = projects.find(function (project) { return String(project.id) === String(id); });
-    return match ? (match.title || match.name || String(id)) : String(id);
+    return match ? (match.title || match.name || (missingLabel ? 'Projekt ohne Namen' : String(id))) : (missingLabel || String(id));
   }
 
   function getDateKeyFromValue(value) {
@@ -687,7 +687,7 @@
     var chip = document.createElement('div');
     var meta = getActivityTypeMeta(activity.type);
     var assigneeName = activity.assigneeId ? getEmployeeName(activity.assigneeId) : 'Nicht zugewiesen';
-    var projectLabel = getProjectLabel(activity.projectId) || 'Ohne Projekt';
+    var projectLabel = getProjectLabel(activity.projectId, 'Unbekanntes Projekt') || 'Ohne Projekt';
     var workplace = activity.assigneeId ? getEmployeeWorkplace(activity.assigneeId) : '';
     var metaParts = [meta.label, assigneeName];
     if (workplace) metaParts.push(workplace);
@@ -1460,7 +1460,7 @@
         var typeMeta = getActivityTypeMeta(activity.type);
         var assigneeName = activity.assigneeId ? getEmployeeName(activity.assigneeId) : 'Nicht zugewiesen';
         var workplace = activity.assigneeId ? getEmployeeWorkplace(activity.assigneeId) : '';
-        var projectLabel = getProjectLabel(activity.projectId) || 'Ohne Projekt';
+        var projectLabel = getProjectLabel(activity.projectId, 'Unbekanntes Projekt') || 'Ohne Projekt';
         var displayTime = activity.calendarTime || getDisplayTime(activity.updatedAt);
         var totalProgress = clampProgress(activity.progress);
         var dayStart = clampProgress(activity.dayStartProgress);
