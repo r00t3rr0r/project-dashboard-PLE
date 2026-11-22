@@ -38,6 +38,12 @@
     var normalizedKey = normalizeStorageKey(key);
     return AUTH_SESSION_KEYS.indexOf(normalizedKey) !== -1;
   }
+
+  function hasAuthenticatedUser() {
+    var auth = window.AuthManager;
+    if (!auth || typeof auth.getCurrentUser !== 'function') return true;
+    return !!auth.getCurrentUser();
+  }
   var dbFileHandle = null;
   var dbFileName = 'projekt-dashboard.sqlite';
   var dbReady = false;
@@ -921,6 +927,9 @@
   }
 
   function checkStorageHealth() {
+    if (!hasAuthenticatedUser()) {
+      return Promise.resolve({ ok: false, status: getStorageStatus() });
+    }
     return fetchRemoteKv('GET').then(function (result) {
       return {
         ok: !!result.ok,
@@ -950,6 +959,8 @@
   }
 
   function runRemoteSyncTick() {
+    // Ohne angemeldeten Benutzer liefert /api/kv nur 401 – Sync pausieren.
+    if (!hasAuthenticatedUser()) return Promise.resolve(false);
     if (remoteSyncInFlight) {
       remoteStreamEventQueued = true;
       return Promise.resolve(false);
@@ -1441,6 +1452,12 @@
   patchStorageApi();
   runStartupHydration().finally(function () {
     startRemoteSyncLoop();
+    startRemoteKvStream();
+  });
+
+  window.addEventListener('authChanged', function () {
+    if (!hasAuthenticatedUser()) return;
+    runRemoteSyncTick();
     startRemoteKvStream();
   });
 

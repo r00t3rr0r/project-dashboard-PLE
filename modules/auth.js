@@ -1679,6 +1679,8 @@
     if (authRefreshTimer || !window.DataLayer || typeof window.DataLayer.refreshFromRemote !== 'function') return;
 
     authRefreshTimer = window.setInterval(function () {
+      // Ohne Anmeldung keine KV-Abfragen (vermeidet 401-Spam am Auth-Gate).
+      if (!getCurrentUser()) return;
       window.DataLayer.refreshFromRemote().then(function (updated) {
         if (updated) refreshUi();
       }).catch(function () {});
