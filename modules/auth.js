@@ -90,6 +90,7 @@
   var dailyStatusDialogOpen = false;
   var dailyStatusConfirmedKey = '';
   var dashboardPresenceLastTouchedAt = 0;
+  var setupGuideStep = null;
 
   function stableHashHex(input) {
     var text = String(input || '');
@@ -1152,7 +1153,10 @@
   }
 
   function restoreServerSession(result) {
-    return syncAuthStateFromServer().then(function () {
+    var ready = window.DataLayer && window.DataLayer.ready;
+    return Promise.resolve(ready).then(function () {
+      return window.DataLayer.waitForStorageWrites();
+    }).then(syncAuthStateFromServer).then(function () {
       var employee = getEmployees().find(function (item) { return String(item.id) === String(result.employeeId); });
       if (!employee) throw new Error('Profildaten konnten nicht geladen werden.');
       serverSessionVerified = true;
@@ -1162,6 +1166,7 @@
       }
       authStateBootstrapped = true;
       authDataLoaded = true;
+      setupGuideStep = window.DataLayer.getStoredValue('pd_setup_guide', '');
       dashboardPresenceLastTouchedAt = 0;
       touchDashboardPresence();
       return employee;
@@ -1194,11 +1199,13 @@
     return fetch('/api/auth/logout', { method: 'POST' }).then(function (response) {
       if (!response.ok) throw new Error('Abmelden fehlgeschlagen.');
       serverSessionVerified = false;
+      setupGuideStep = null;
       writeSession(null);
       dashboardPresenceLastTouchedAt = 0;
       closeModal();
       emitAuthChanged();
       refreshUi();
+      loadLoginUsers();
     }).catch(function () { window.alert('Abmelden fehlgeschlagen. Bitte erneut versuchen.'); });
   }
 
@@ -1219,6 +1226,7 @@
   }
 
   function showDailyStatusAfterLogin(user) {
+    if (isSetupGuideActive()) return;
     if (dailyStatusPromptTimer) {
       window.clearTimeout(dailyStatusPromptTimer);
       dailyStatusPromptTimer = null;
@@ -1361,7 +1369,7 @@
   }
 
   function scheduleDailyStatusPrompt() {
-    if (dailyStatusPromptTimer || dailyStatusDialogOpen || !authStateBootstrapped) return;
+    if (dailyStatusPromptTimer || dailyStatusDialogOpen || !authStateBootstrapped || isSetupGuideActive()) return;
     var user = getCurrentUser();
     if (!user || hasDailyWorkStatus(user)) return;
     dailyStatusPromptTimer = window.setTimeout(function () {
@@ -1540,6 +1548,51 @@
     });
   }
 
+  function isSetupGuideActive() {
+    return isAdmin() && (setupGuideStep === 'team' || setupGuideStep === 'project');
+  }
+
+  function renderSetupGuide() {
+    var guide = document.getElementById('setup-guide');
+    if (!guide) return;
+    guide.hidden = !isSetupGuideActive();
+    if (guide.hidden) return;
+    var team = setupGuideStep === 'team';
+    document.getElementById('setup-guide-title').textContent = team ? 'Schritt 2 von 3: Team einrichten' : 'Schritt 3 von 3: Erstes Projekt';
+    document.getElementById('setup-guide-description').textContent = team
+      ? 'Lege Teammitglieder mit Rolle und optionalem Login an. Du kannst mehrere hinzufuegen oder diesen Schritt spaeter erledigen.'
+      : 'Erstelle dein erstes Projekt und hinterlege Beschreibung, Termine und Team. Auch diesen Schritt kannst du spaeter erledigen.';
+    document.getElementById('setup-guide-open').textContent = team ? 'Mitarbeiter hinzufuegen' : 'Projekt anlegen';
+    document.getElementById('setup-guide-next').textContent = team ? 'Weiter zum Projekt' : 'Einrichtung abschliessen';
+  }
+
+  function saveSetupGuideStep(step) {
+    var error = document.getElementById('setup-guide-error');
+    var buttons = document.querySelectorAll('#setup-guide button');
+    error.hidden = true;
+    buttons.forEach(function (button) { button.disabled = true; });
+    var waitForSave = setupGuideStep === 'team'
+      ? window.DataLayer.waitForEmployeeSave
+      : window.DataLayer.waitForProjectSave;
+    return waitForSave().then(function (saved) {
+      if (!saved) throw new Error('Die letzten Aenderungen konnten nicht gespeichert werden. Bitte erneut versuchen.');
+      return fetch('/api/kv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'pd_setup_guide', value: step })
+      });
+    }).then(function (response) {
+      if (!response.ok) throw new Error('Der Fortschritt konnte nicht gespeichert werden. Bitte erneut versuchen.');
+      setupGuideStep = step;
+      refreshUi();
+    }).catch(function (err) {
+      error.textContent = err.message || 'Der Server ist nicht erreichbar.';
+      error.hidden = false;
+    }).finally(function () {
+      buttons.forEach(function (button) { button.disabled = false; });
+    });
+  }
+
   function refreshUi() {
     var locked = !getCurrentUser();
     document.body.classList.toggle('auth-locked', locked);
@@ -1608,6 +1661,7 @@
       window.AppShell.navigateTo(getFallbackPage());
     }
 
+    renderSetupGuide();
     scheduleDailyStatusPrompt();
   }
 
@@ -1631,12 +1685,10 @@
     }, AUTH_REFRESH_INTERVAL_MS);
   }
 
-  function init() {
-    if (initStarted) return;
-    initStarted = true;
-
+  function loadLoginUsers() {
     var userSelect = document.getElementById('auth-gate-username');
-    if (userSelect) fetch('/api/auth/users', { cache: 'no-store' }).then(function (response) {
+    if (!userSelect) return;
+    fetch('/api/auth/users', { cache: 'no-store' }).then(function (response) {
       if (!response.ok) throw new Error('Mitarbeiterliste konnte nicht geladen werden.');
       return response.json();
     }).then(function (result) {
@@ -1645,19 +1697,117 @@
         userSelect.add(new Option(user.name + ' (' + user.username + ')', user.username));
       });
       userSelect.disabled = !result.users.length;
-      if (!result.users.length) throw new Error('Keine Mitarbeiter mit freigeschaltetem Login vorhanden.');
+      if (result.users.length) {
+        document.getElementById('auth-gate-title').textContent = 'Anmelden';
+        document.getElementById('auth-gate-form').hidden = false;
+        document.getElementById('setup-admin-form').hidden = true;
+        document.getElementById('auth-gate-error').hidden = true;
+      }
+      if (!result.users.length) {
+        return fetch('/api/setup/status', { cache: 'no-store' }).then(function (response) {
+          if (!response.ok) throw new Error('Einrichtungsstatus konnte nicht geladen werden.');
+          return response.json();
+        }).then(function (status) {
+          if (!status.available) throw new Error('Keine Mitarbeiter mit freigeschaltetem Login vorhanden. Bitte den Serveradministrator kontaktieren.');
+          document.getElementById('auth-gate-title').textContent = 'Schritt 1 von 3: Administrator';
+          document.getElementById('auth-gate-form').hidden = true;
+          document.getElementById('setup-admin-form').hidden = false;
+          document.getElementById('setup-code').focus();
+        });
+      }
     }).catch(function (error) {
       userSelect.replaceChildren(new Option('Mitarbeiterliste nicht verfuegbar', ''));
       var errorElement = document.getElementById('auth-gate-error');
       errorElement.textContent = error.message;
       errorElement.hidden = false;
     });
+  }
+
+  function init() {
+    if (initStarted) return;
+    initStarted = true;
+
+    var userSelect = document.getElementById('auth-gate-username');
+    loadLoginUsers();
 
     window.addEventListener('authenticationRequired', function () {
       serverSessionVerified = false;
+      setupGuideStep = null;
       writeSession(null);
       closeModal();
       refreshUi();
+      loadLoginUsers();
+    });
+
+    var setupForm = document.getElementById('setup-admin-form');
+    if (setupForm) setupForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+      var error = document.getElementById('auth-gate-error');
+      var submit = document.getElementById('setup-submit');
+      var password = document.getElementById('setup-password').value;
+      error.hidden = true;
+      if (password !== document.getElementById('setup-password-confirm').value) {
+        error.textContent = 'Die Passwoerter stimmen nicht ueberein.';
+        error.hidden = false;
+        return;
+      }
+      submit.disabled = true;
+      fetch('/api/setup/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: document.getElementById('setup-code').value,
+          name: document.getElementById('setup-name').value,
+          username: document.getElementById('setup-username').value,
+          password: password
+        })
+      }).then(function (response) {
+        return response.json().then(function (result) {
+          if (!response.ok) throw new Error(result.error || 'Einrichtung fehlgeschlagen.');
+          userSelect.replaceChildren(new Option('Mitarbeiter auswaehlen', ''), new Option(document.getElementById('setup-name').value + ' (' + result.username + ')', result.username));
+          userSelect.disabled = false;
+          userSelect.value = result.username;
+          setupForm.hidden = true;
+          document.getElementById('auth-gate-form').hidden = false;
+          document.getElementById('auth-gate-title').textContent = 'Anmelden';
+          document.getElementById('setup-code').value = '';
+          document.getElementById('setup-password').value = '';
+          document.getElementById('setup-password-confirm').value = '';
+          return login(result.username, password, false);
+        });
+      }).then(function (result) {
+        if (!result.ok) throw new Error('Administrator erstellt, aber die Anmeldung ist fehlgeschlagen: ' + result.message);
+      }).catch(function (err) {
+        error.textContent = err.message || 'Der Server ist nicht erreichbar.';
+        error.hidden = false;
+      }).finally(function () { submit.disabled = false; });
+    });
+
+    document.getElementById('setup-guide-open').addEventListener('click', function () {
+      if (!isSetupGuideActive()) return;
+      if (setupGuideStep === 'team') {
+        var button = this;
+        var error = document.getElementById('setup-guide-error');
+        button.disabled = true;
+        error.hidden = true;
+        window.DataLayer.waitForEmployeeSave().then(function (saved) {
+          if (!saved) throw new Error('Die letzten Mitarbeiterdaten konnten nicht gespeichert werden. Bitte erneut versuchen.');
+          if (window.AppShell) window.AppShell.navigateTo('employees');
+          if (window.EmployeeManager) window.EmployeeManager.addEmployee();
+        }).catch(function (err) {
+          error.textContent = err.message || 'Die Mitarbeiterdaten konnten nicht gespeichert werden.';
+          error.hidden = false;
+        }).finally(function () { button.disabled = false; });
+      } else {
+        if (window.AppShell) window.AppShell.navigateTo('projects');
+        if (window.ProjectsModule) window.ProjectsModule.openCreateDialog({ reset: true, focusId: 'project-title' });
+      }
+    });
+    document.getElementById('setup-guide-next').addEventListener('click', function () {
+      if (isSetupGuideActive()) saveSetupGuideStep(setupGuideStep === 'team' ? 'project' : 'done');
+    });
+    document.getElementById('setup-guide-finish').addEventListener('click', function () {
+      if (isSetupGuideActive()) saveSetupGuideStep('done');
     });
 
     var loginForm = document.getElementById('auth-gate-form');
@@ -1686,7 +1836,8 @@
     }).then(restoreServerSession).then(function () {
       refreshUi();
       emitAuthChanged();
-    }).catch(function () {
+    }).catch(function (error) {
+      if (error.message !== 'Keine Sitzung') console.error('[Auth] Sitzung konnte nicht wiederhergestellt werden:', error);
       serverSessionVerified = false;
       writeSession(null);
       refreshUi();

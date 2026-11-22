@@ -72,6 +72,7 @@
   var REMOTE_SYNC_INTERVAL_MS = 8000;
   var REMOTE_STREAM_RETRY_MS = 3000;
   var pendingLocalWritesCount = 0;
+  var pendingWriteWaiters = [];
   var dirtyRemoteSyncKeys = Object.create(null);
   var DIRTY_REMOTE_SYNC_STATE_KEY = '__pd_remote_dirty_sync_v1';
 
@@ -81,6 +82,14 @@
 
   function endLocalWrite() {
     pendingLocalWritesCount = Math.max(0, pendingLocalWritesCount - 1);
+    if (!pendingLocalWritesCount) {
+      pendingWriteWaiters.splice(0).forEach(function (resolve) { resolve(); });
+    }
+  }
+
+  function waitForStorageWrites() {
+    if (!pendingLocalWritesCount) return Promise.resolve();
+    return new Promise(function (resolve) { pendingWriteWaiters.push(resolve); });
   }
 
   function hasPendingLocalWrites() {
@@ -466,6 +475,11 @@
     return pending || Promise.resolve(!dirtyRemoteSyncKeys[KEYS.employees]);
   }
 
+  function waitForProjectSave() {
+    var pending = pendingStorageWrites[KEYS.projects];
+    return pending || Promise.resolve(!dirtyRemoteSyncKeys[KEYS.projects]);
+  }
+
   function waitForTaskAndCalendarSave() {
     return Promise.all([KEYS.tasks, KEYS.calendarEvents].map(function (key) {
       return pendingStorageWrites[key] || Promise.resolve(!dirtyRemoteSyncKeys[key]);
@@ -848,6 +862,7 @@
       // While local writes are still being flushed, do not hydrate from remote
       // to avoid restoring stale server state over fresh local task changes.
       if (hasPendingLocalWrites()) {
+        remoteKvSnapshotEtag = '';
         remoteKvReachable = true;
         emitStorageStatusChanged();
         return { ok: true, changed: false, deferred: true, authRequired: false };
@@ -3271,6 +3286,8 @@
     updateEmployee:   updateEmployee,
     deleteEmployee:   deleteEmployee,
     waitForEmployeeSave: waitForEmployeeSave,
+    waitForProjectSave: waitForProjectSave,
+    waitForStorageWrites: waitForStorageWrites,
 
     // Labels CRUD
     getLabels:      getLabels,

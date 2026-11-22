@@ -49,6 +49,12 @@ Danach im Browser:
 
 - [http://127.0.0.1:8766/app.html](http://127.0.0.1:8766/app.html)
 
+### Ersteinrichtung
+
+Wenn noch kein freigeschalteter Login vorhanden ist, gilt der Einrichtungscode `1337`. Der Code wird im Terminal angezeigt und steht zusätzlich in `data/.setup-code` auf dem Server (nur für den Dateieigentümer lesbar). Öffne das Dashboard, gib den Code ein und erstelle das erste Administratorkonto mit einem Passwort aus mindestens 12 Zeichen. Anschließend führt der Assistent zum Anlegen von Teammitgliedern und eines ersten Projekts; beide Schritte können übersprungen und später nachgeholt werden.
+
+Der Code wird nach erfolgreicher Erstellung ungültig und die Datei gelöscht. Bei noch ausstehender Einrichtung bleibt der Code auch nach einem Serverneustart `1337`; vorhandene Daten und deaktivierte Mitarbeiter bleiben erhalten. **Der feste Code bietet keinen Schutz vor anderen Netzwerkbenutzern:** Den Server während der Ersteinrichtung nur auf localhost oder in einem entsprechend abgeschirmten Netzwerk betreiben. Bei Zugriff über das Netzwerk TLS verwenden, damit Passwort und Code nicht unverschlüsselt übertragen werden. Sind bereits Logins vorhanden, ist die Ersteinrichtung gesperrt.
+
 Aus dem lokalen Netzwerk:
 
 - Beispiel: http://192.168.1.50:8766/app.html

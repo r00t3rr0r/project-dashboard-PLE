@@ -23,9 +23,15 @@
   .auth-gate-form > input, .auth-gate-form > select { box-sizing: border-box; width: 100%; min-width: 0; padding: 12px; border: 1px solid var(--border-color, #666); border-radius: 6px; background: var(--bg-secondary, #25282b); color: inherit; font: inherit; }
   .auth-remember { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
   .auth-gate-error { color: var(--danger, #ed7777); font-size: 14px; }
+  .auth-gate-form[hidden], .setup-guide[hidden] { display: none; }
+  .setup-hint { color: var(--text-secondary, #bbb); font-size: 14px; line-height: 1.5; margin: 0; }
+  .setup-guide { margin: 16px 0; padding: 20px; border: 1px solid var(--border-color, #666); border-radius: 12px; background: var(--bg-secondary, #25282b); }
+  .setup-guide h2 { margin: 0 0 8px; font-size: 18px; }
+  .setup-guide p { margin: 0 0 12px; }
+  .setup-guide-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 </style>
-  <script src="data.js?v=20261120d"></script>
-<script src="modules/auth.js?v=20261120d"></script>
+  <script src="data.js?v=20261122a"></script>
+<script src="modules/auth.js?v=20261122a"></script>
 <!-- Core: App Router, Theme, Export/Import -->
 <script src="modules/app.js?v=20261119a"></script>
 <!-- Feature Modules (alphabetical) -->
@@ -33,7 +39,7 @@
 <script src="modules/calendar.js?v=20261120i"></script>
 <script src="modules/dashboard.js?v=20261119e"></script>
 <script src="modules/documentation.js?v=20260730b"></script>
-<script src="modules/employees.js?v=20261117f"></script>
+<script src="modules/employees.js?v=20261122a"></script>
 <script src="modules/integrations.js?v=20260730b"></script>
 <script src="modules/kanban.js?v=20261120d"></script>
 <script src="modules/labels.js?v=20260730y"></script>
@@ -70,6 +76,21 @@
         <input id="auth-gate-password" name="password" type="password" autocomplete="current-password" required>
         <label class="auth-remember"><input id="auth-gate-remember" name="remember" type="checkbox"> Angemeldet bleiben</label>
         <button id="auth-gate-submit" type="submit" class="btn btn-primary">Anmelden</button>
+      </form>
+      <form id="setup-admin-form" class="auth-gate-form" hidden>
+        <p class="setup-hint">Willkommen! Erstelle zuerst dein Administratorkonto. Den einmaligen Einrichtungscode findest du beim Serverstart im Terminal oder in <code>data/.setup-code</code> auf dem Server.</p>
+        <label for="setup-code">Einrichtungscode</label>
+        <input id="setup-code" type="password" autocomplete="off" required>
+        <label for="setup-name">Dein Name</label>
+        <input id="setup-name" type="text" autocomplete="name" maxlength="100" required>
+        <label for="setup-username">Login-Name</label>
+        <input id="setup-username" type="text" autocomplete="username" maxlength="64" pattern="[A-Za-z0-9]+([._-][A-Za-z0-9]+)*" placeholder="z. B. max.mustermann" required>
+        <label for="setup-password">Passwort</label>
+        <input id="setup-password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required>
+        <p class="setup-hint">Mindestens 12 Zeichen; keine Leerzeichen am Anfang oder Ende.</p>
+        <label for="setup-password-confirm">Passwort wiederholen</label>
+        <input id="setup-password-confirm" type="password" autocomplete="new-password" minlength="12" maxlength="256" required>
+        <button id="setup-submit" type="submit" class="btn btn-primary">Administrator erstellen und anmelden</button>
       </form>
       <p id="auth-gate-error" class="auth-gate-error" role="alert" hidden></p>
     </div>
@@ -153,6 +174,17 @@
         </div>
       </div>
     </div>
+
+    <aside id="setup-guide" class="setup-guide" aria-labelledby="setup-guide-title" hidden>
+      <h2 id="setup-guide-title"></h2>
+      <p id="setup-guide-description"></p>
+      <div class="setup-guide-actions">
+        <button id="setup-guide-open" type="button" class="btn btn-primary"></button>
+        <button id="setup-guide-next" type="button" class="btn btn-secondary"></button>
+        <button id="setup-guide-finish" type="button" class="btn btn-secondary">Einrichtung beenden</button>
+      </div>
+      <p id="setup-guide-error" class="auth-gate-error" role="alert" hidden></p>
+    </aside>
 
     <!-- Dashboard -->
     <section id="dashboard" class="page active">

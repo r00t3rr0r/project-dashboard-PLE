@@ -39,6 +39,8 @@ PORT = int(os.environ.get('PROJECT_DASHBOARD_STORAGE_PORT', '8766'))
 AUTH_COOKIE = 'pd_session'
 AUTH_ATTEMPTS = {}
 AUTH_LOCK = threading.RLock()
+SETUP_CODE = None
+SETUP_ATTEMPTS = {}
 OLLAMA_BASE_URL = os.environ.get('OLLAMA_BASE_URL', 'http://127.0.0.1:11434').rstrip('/')
 OLLAMA_BASE_URLS = tuple(
     url.strip().rstrip('/')
@@ -346,6 +348,37 @@ def init_db():
     ensure_daily_backup(force=True)
 
 
+def _has_login(employees):
+    return any(
+        employee.get('auth', {}).get('login', {}).get('enabled')
+        and employee.get('auth', {}).get('login', {}).get('username')
+        and employee.get('auth', {}).get('login', {}).get('passwordHash')
+        for employee in employees
+    )
+
+
+def initialize_setup():
+    global SETUP_CODE
+    code_path = os.path.join(os.path.dirname(DB_PATH), '.setup-code')
+    connection = open_db_connection()
+    try:
+        row = connection.execute('SELECT value FROM kv_store WHERE key = ?', ('pd_employees',)).fetchone()
+        employees = json.loads(row[0]) if row else []
+    finally:
+        connection.close()
+    if not isinstance(employees, list) or not all(isinstance(employee, dict) for employee in employees):
+        raise ValueError('Mitarbeiterdaten sind ungueltig; Einrichtung abgebrochen.')
+    if _has_login(employees):
+        SETUP_CODE = None
+        if os.path.exists(code_path):
+            os.unlink(code_path)
+        return
+    SETUP_CODE = '1337'
+    _atomic_write_text(code_path, SETUP_CODE + '\n')
+    print('[Einrichtung] Einmaliger Einrichtungscode: ' + SETUP_CODE, flush=True)
+    print('[Einrichtung] Der Code steht auch in ' + code_path, flush=True)
+
+
 def _build_trusted_origins():
     defaults = {
         'http://127.0.0.1:' + str(PORT),
@@ -402,6 +435,11 @@ class StorageHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         ensure_daily_backup()
         parsed = urlparse(self.path)
+        if parsed.path == '/api/setup/status':
+            with STORAGE_LOCK, self._auth_connection() as connection:
+                available = bool(SETUP_CODE) and not _has_login(self._auth_employees(connection))
+            self._send_json({'available': available})
+            return
         if parsed.path == '/api/auth/users':
             with self._auth_connection() as connection:
                 users = []
@@ -461,6 +499,9 @@ class StorageHandler(BaseHTTPRequestHandler):
             self._send_json({'error': 'Origin not allowed.'}, status=403)
             return
         parsed = urlparse(self.path)
+        if parsed.path == '/api/setup/admin':
+            self._handle_setup_admin()
+            return
         if parsed.path == '/api/auth/login':
             self._handle_login()
             return
@@ -2306,6 +2347,89 @@ class StorageHandler(BaseHTTPRequestHandler):
         except (ValueError, TypeError):
             return False
 
+    def _handle_setup_admin(self):
+        global SETUP_CODE
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+            if length <= 0 or length > 4096:
+                raise ValueError('Invalid content length')
+            payload, error = self._read_json_payload()
+        except (ValueError, UnicodeDecodeError):
+            payload, error = None, 'Invalid request'
+        if error:
+            self._send_json({'error': 'Ungueltige Eingabe.'}, status=400)
+            return
+        address = self.client_address[0]
+        now = time.time()
+        with AUTH_LOCK:
+            attempts = [stamp for stamp in SETUP_ATTEMPTS.get(address, []) if now - stamp < 300]
+            SETUP_ATTEMPTS[address] = attempts
+            if len(attempts) >= 10:
+                self._send_json({'error': 'Zu viele Versuche. Bitte spaeter erneut versuchen.'}, status=429)
+                return
+            attempts.append(now)
+        code = payload.get('code')
+        name = payload.get('name')
+        username = payload.get('username')
+        password = payload.get('password')
+        if not all(isinstance(value, str) for value in (code, name, username, password)):
+            self._send_json({'error': 'Bitte alle Felder ausfuellen.'}, status=400)
+            return
+        name, username = name.strip(), username.strip().lower()
+        if not name or len(name) > 100 or not re.fullmatch(r'[a-z0-9]+(?:[._-][a-z0-9]+)*', username) or len(username) > 64:
+            self._send_json({'error': 'Bitte einen Namen und einen gueltigen Login-Namen angeben.'}, status=400)
+            return
+        username = re.sub(r'[^a-z0-9]+', '.', username).strip('.')
+        if len(password) < 12 or len(password) > 256 or password != password.strip():
+            self._send_json({'error': 'Das Passwort muss 12 bis 256 Zeichen lang sein und darf keine Leerzeichen am Anfang oder Ende enthalten.'}, status=400)
+            return
+        with STORAGE_LOCK:
+            with self._auth_connection() as connection:
+                connection.execute('BEGIN IMMEDIATE')
+                employees = self._auth_employees(connection)
+                if not SETUP_CODE or _has_login(employees):
+                    self._send_json({'error': 'Die Ersteinrichtung ist nicht mehr verfuegbar.'}, status=409)
+                    return
+                if not hmac.compare_digest(code.encode('utf-8'), SETUP_CODE.encode('ascii')):
+                    self._send_json({'error': 'Der Einrichtungscode ist nicht korrekt.'}, status=403)
+                    return
+                if any(employee.get('auth', {}).get('login', {}).get('username') == username for employee in employees):
+                    self._send_json({'error': 'Dieser Login-Name wird bereits verwendet.'}, status=400)
+                    return
+                salt = secrets.token_bytes(16)
+                iterations = 180000
+                digest = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, iterations, dklen=32).hex()
+                employee = {
+                    'id': 'emp_' + uuid.uuid4().hex,
+                    'name': name,
+                    'role': 'Project Lead',
+                    'availability': 'Verfügbar',
+                    'capacityPoints': 8,
+                    'focusAreas': [],
+                    'createdAt': utc_now_iso_z(),
+                    'auth': {
+                        'accessLevel': 'admin',
+                        'login': {'enabled': True, 'username': username, 'passwordHash': 'pbkdf2${}${}${}'.format(iterations, salt.hex(), digest)},
+                        'permissions': {'pages': []}
+                    }
+                }
+                employees.append(employee)
+                for key, value in (('pd_employees', json.dumps(employees, ensure_ascii=False)), ('pd_setup_guide', 'team')):
+                    connection.execute('INSERT OR REPLACE INTO kv_store(key, value, updatedAt) VALUES (?, ?, ?)', (key, value, utc_now_iso_z()))
+                _commit_durably(connection)
+                SETUP_CODE = None
+            try:
+                os.unlink(os.path.join(os.path.dirname(DB_PATH), '.setup-code'))
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                print('[Einrichtung] Verwendeter Code konnte nicht entfernt werden: ' + str(exc), flush=True)
+            self._invalidate_kv_snapshot()
+            schedule_full_backup()
+        _next_kv_stream_event('set', 'pd_employees')
+        _next_kv_stream_event('set', 'pd_setup_guide')
+        self._send_json({'ok': True, 'username': username})
+
     def _handle_login(self):
         payload, error = self._read_json_payload()
         if error:
@@ -2609,5 +2733,6 @@ class DashboardHTTPServer(ThreadingHTTPServer):
 if __name__ == '__main__':
     init_db()
     httpd = DashboardHTTPServer((HOST, PORT), StorageHandler)
+    initialize_setup()
     print(f'Storage server listening on http://{HOST}:{PORT}')
     httpd.serve_forever()

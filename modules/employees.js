@@ -1777,7 +1777,7 @@
   }
 
   function closeModal() {
-    var overlay = document.getElementById('modal-overlay');
+    var overlay = document.getElementById('employee-modal-overlay');
     if (!overlay) return;
 
     if (overlay._escHandler) {
@@ -1793,7 +1793,7 @@
     closeModal();
 
     var overlay = document.createElement('div');
-    overlay.id = 'modal-overlay';
+    overlay.id = 'employee-modal-overlay';
     overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:var(--overlay-bg,rgba(0,0,0,0.5));z-index:9998;display:flex;align-items:center;justify-content:center;padding:1rem;';
 
     var modal = document.createElement('div');
@@ -1916,8 +1916,7 @@
         }
 
         var finalizeCreate = function(authData) {
-          var employees = getEmployees();
-          employees.push(normalizeEmployee({
+          var employee = normalizeEmployee({
             id: generateId('emp'),
             name: name,
             role: role,
@@ -1932,9 +1931,14 @@
             },
             auth: authData || undefined,
             projectId: null
-          }));
-
-          setEmployees(employees);
+          });
+          if (hasDataLayer()) {
+            if (!window.DataLayer.createEmployee(employee)) return;
+          } else {
+            var employees = getEmployees();
+            employees.push(employee);
+            setEmployees(employees);
+          }
           createNotification(name + ' wurde als neues Teammitglied erfasst.');
           closeModal();
           renderEmployeeList('employee-list');
@@ -1960,7 +1964,7 @@
     var accessLevelSelect = document.getElementById('emp_access_level');
     if (accessLevelSelect) {
       accessLevelSelect.addEventListener('change', function() {
-        syncPermissionEditorForAccessLevel(accessLevelSelect.value, document.getElementById('modal-overlay'));
+        syncPermissionEditorForAccessLevel(accessLevelSelect.value, document.getElementById('employee-modal-overlay'));
       });
     }
   }
