@@ -215,9 +215,10 @@ function setupThemeToggle(){
     }
   }
   
+  // Dashboard startet grundsätzlich im hellen Theme
   var saved=readTheme();
-  if(saved !== 'light' && saved !== 'dark') {
-    saved = 'dark';
+  if(saved !== 'light') {
+    saved = 'light';
     writeTheme(saved);
   }
   document.body.classList.toggle('light-mode', saved === 'light');
